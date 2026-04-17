@@ -7,7 +7,17 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QTextEdit, QProgressBar, QGroupBox, QCheckBox,
                              QLineEdit, QSplitter)
 from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                             QPushButton, QGroupBox, QCheckBox, QProgressBar,
+                             QFileDialog, QMessageBox, QTreeWidget, QTreeWidgetItem,
+                             QStyle)
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QFont
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+import subprocess
+from PyQt5.QtGui import QBrush
+
 
 # 获取全局应用对象，用于后续强制刷新样式
 qApp = None
@@ -956,26 +966,597 @@ class SyncBackupPage(QWidget):
 class DiskAnalyzerPage(QWidget):
     def __init__(self):
         super().__init__()
+        self.current_path = None
+        self.scan_thread = None
+        # 配置中文字体
+        plt.rcParams['font.sans-serif'] = ['SimHei',
+                                           'Microsoft YaHei', 'Arial Unicode MS']
+        plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+
+        self.setup_ui()
+
+    def setup_ui(self):
+        """初始化UI界面"""
         layout = QVBoxLayout(self)
+        layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
-        label = QLabel("💾 磁盘空间分析器")
+
+        # 标题
+        title = QLabel("💾 磁盘空间分析器")
         title_font = QFont()
         title_font.setPointSize(16)
         title_font.setBold(True)
-        label.setFont(title_font)
-        label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet("color: #666;")
-        layout.addWidget(label)
+        title.setFont(title_font)
+        layout.addWidget(title)
 
-        info = QLabel("此功能正在开发中，敬请期待...")
-        info_font = QFont()
-        info_font.setPointSize(14)
-        info.setFont(info_font)
-        info.setAlignment(Qt.AlignCenter)
-        info.setStyleSheet("color: #999; margin-top: 20px;")
-        layout.addWidget(info)
+        # 路径选择区域
+        path_group = QGroupBox("选择要分析的路径")
+        path_layout = QHBoxLayout()
+
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("请选择要分析的文件夹或磁盘...")
+        self.path_edit.setReadOnly(True)
+
+        self.btn_browse = QPushButton("📂 选择文件夹")
+        self.btn_browse.clicked.connect(self.select_path)
+        self.btn_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+
+        path_layout.addWidget(self.path_edit)
+        path_layout.addWidget(self.btn_browse)
+        path_group.setLayout(path_layout)
+        layout.addWidget(path_group)
+
+        # 扫描选项
+        option_group = QGroupBox("扫描选项")
+        option_layout = QVBoxLayout()
+
+        self.check_subfolders = QCheckBox("包含子文件夹")
+        self.check_subfolders.setChecked(True)
+
+        self.check_large_files = QCheckBox("显示大文件列表 (大于100MB)")
+        self.check_large_files.setChecked(True)
+
+        option_layout.addWidget(self.check_subfolders)
+        option_layout.addWidget(self.check_large_files)
+        option_group.setLayout(option_layout)
+        layout.addWidget(option_group)
+
+        # 按钮区域
+        button_layout = QHBoxLayout()
+
+        self.btn_scan = QPushButton("🔍 开始扫描")
+        self.btn_scan.clicked.connect(self.start_scan)
+        self.btn_scan.setEnabled(False)
+        self.btn_scan.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+
+        self.btn_stop = QPushButton("⏹ 停止扫描")
+        self.btn_stop.clicked.connect(self.stop_scan)
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B6B;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF5252;
+            }
+        """)
+
+        button_layout.addWidget(self.btn_scan)
+        button_layout.addWidget(self.btn_stop)
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        # 进度条
+        self.progress = QProgressBar()
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+
+        # 结果显示区域
+        result_layout = QHBoxLayout()
+
+        # 左侧：饼图
+        self.figure = plt.figure(figsize=(5, 5), dpi=100)
+        self.canvas = FigureCanvas(self.figure)
+        self.ax = self.figure.add_subplot(111)
+
+        chart_group = QGroupBox("空间分布")
+        chart_layout = QVBoxLayout()
+        chart_layout.addWidget(self.canvas)
+        chart_group.setLayout(chart_layout)
+
+        # 右侧：文件列表
+        list_group = QGroupBox("大文件列表")
+        list_layout = QVBoxLayout()
+
+        self.file_list = QTreeWidget()
+        self.file_list.itemDoubleClicked.connect(self.open_file_location)
+        self.file_list.setHeaderLabels(["文件名", "大小", "路径", "删除建议"])  # 添加表头
+        self.file_list.setColumnWidth(0, 200)
+        self.file_list.setColumnWidth(1, 100)
+        self.file_list.setColumnWidth(2, 300)
+        self.file_list.setColumnWidth(3, 100)
+
+        list_layout.addWidget(self.file_list)
+
+        list_group.setLayout(list_layout)
+
+        result_layout.addWidget(chart_group, 1)
+        result_layout.addWidget(list_group, 2)
+
+        layout.addLayout(result_layout)
+
+        # 状态栏
+        self.status_label = QLabel("请选择要分析的路径")
+        self.status_label.setStyleSheet("color: #666;")
+        layout.addWidget(self.status_label)
+
+    def select_path(self):
+        """选择要分析的路径"""
+        path = QFileDialog.getExistingDirectory(self, "选择要分析的文件夹")
+        if path:
+            self.current_path = path
+            self.path_edit.setText(path)
+            self.btn_scan.setEnabled(True)
+            self.status_label.setText(f"已选择路径: {path}")
+
+    def start_scan(self):
+        """开始扫描"""
+        if not self.current_path:
+            QMessageBox.warning(self, "提示", "请先选择要分析的路径！")
+            return
+
+        # 清空之前的结果
+        self.file_list.clear()
+        self.ax.clear()
+        self.canvas.draw()
+
+        # 禁用扫描按钮，启用停止按钮
+        self.btn_scan.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+
+        # 创建并启动扫描线程
+        self.scan_thread = ScanThread(
+            self.current_path,
+            self.check_subfolders.isChecked(),
+            self.check_large_files.isChecked()
+        )
+        self.scan_thread.progress_updated.connect(self.update_progress)
+        self.scan_thread.scan_completed.connect(self.display_results)
+        self.scan_thread.start()
+
+    def stop_scan(self):
+        """停止扫描"""
+        if self.scan_thread and self.scan_thread.isRunning():
+            self.scan_thread.stop()
+            self.status_label.setText("扫描已停止")
+            self.btn_scan.setEnabled(True)
+            self.btn_stop.setEnabled(False)
+            self.progress.setVisible(False)
+
+    def update_progress(self, value, message):
+        """更新进度"""
+        self.progress.setValue(value)
+        self.status_label.setText(message)
+
+    def display_results(self, folder_sizes, large_files):
+        """显示扫描结果"""
+        # 绘制饼图
+        if folder_sizes:
+            self.plot_pie_chart(folder_sizes)
+
+        # 显示大文件列表
+        if large_files:
+            self.display_large_files(large_files)
+
+        # 更新状态
+        self.status_label.setText("扫描完成！")
+        self.btn_scan.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        self.progress.setVisible(False)
+
+    def plot_pie_chart(self, folder_sizes):
+        """绘制饼图"""
+        # 获取前10个最大的文件夹
+        top_folders = sorted(folder_sizes.items(),
+                             key=lambda x: x[1], reverse=True)[:10]
+
+        if not top_folders:
+            return
+
+        labels = [os.path.basename(path) for path, _ in top_folders]
+        sizes = [size for _, size in top_folders]
+
+        # 计算其他文件夹的总大小
+        total_size = sum(folder_sizes.values())
+        top_size = sum(sizes)
+        if total_size > top_size:
+            labels.append("其他")
+            sizes.append(total_size - top_size)
+
+        # 绘制饼图
+        self.ax.clear()
+        colors = plt.cm.Set3(range(len(labels)))
+        wedges, texts, autotexts = self.ax.pie(
+            sizes,
+            labels=labels,
+            autopct='%1.1f%%',
+            startangle=90,
+            colors=colors,
+            wedgeprops={'linewidth': 1, 'edgecolor': 'white'}
+        )
+
+        # 设置文本样式
+        for text in texts:
+            text.set_fontsize(10)
+        for autotext in autotexts:
+            autotext.set_color('white')
+            autotext.set_fontsize(9)
+            autotext.set_weight('bold')
+
+        self.ax.set_title("文件夹空间分布", fontsize=12, pad=20)
+        self.canvas.draw()
+
+    # def display_large_files(self, large_files):
+    #     """显示大文件列表"""
+    #     self.file_list.clear()
+
+    #     for file_path, file_size in large_files:
+    #         # 格式化文件大小
+    #         if file_size >= 1024 * 1024 * 1024:
+    #             size_str = f"{file_size / (1024 * 1024 * 1024):.2f} GB"
+    #         elif file_size >= 1024 * 1024:
+    #             size_str = f"{file_size / (1024 * 1024):.2f} MB"
+    #         else:
+    #             size_str = f"{file_size / 1024:.2f} KB"
+
+    #         # 创建树形项
+    #         item = QTreeWidgetItem([
+    #             os.path.basename(file_path),
+    #             size_str,
+    #             os.path.dirname(file_path)
+    #         ])
+
+    #         # 设置图标
+    #         if os.path.isdir(file_path):
+    #             item.setIcon(0, self.style().standardIcon(QStyle.SP_DirIcon))
+    #         else:
+    #             item.setIcon(0, self.style().standardIcon(QStyle.SP_FileIcon))
+
+    #         self.file_list.addTopLevelItem(item)
+
+    #     # 调整列宽
+    #     self.file_list.resizeColumnToContents(0)
+    #     self.file_list.resizeColumnToContents(1)
+    def display_large_files(self, large_files):
+        """显示大文件列表"""
+        self.file_list.clear()
+
+        for file_path, file_size, is_system in large_files:  # 解包时包含is_system标志
+            # 格式化文件大小
+            if file_size >= 1024 * 1024 * 1024:
+                size_str = f"{file_size / (1024 * 1024 * 1024):.2f} GB"
+            elif file_size >= 1024 * 1024:
+                size_str = f"{file_size / (1024 * 1024):.2f} MB"
+            else:
+                size_str = f"{file_size / 1024:.2f} KB"
+
+            # 判断是否为系统文件（使用扫描线程中已经判断好的标志）
+            status = "不建议删除" if is_system else "可以考虑删除"
+
+            # 创建树形项（包含4列：文件名、大小、路径、删除建议）
+            item = QTreeWidgetItem([
+                os.path.basename(file_path),
+                size_str,
+                os.path.dirname(file_path),
+                status
+            ])
+
+            # 设置图标
+            if os.path.isdir(file_path):
+                item.setIcon(0, self.style().standardIcon(QStyle.SP_DirIcon))
+            else:
+                item.setIcon(0, self.style().standardIcon(QStyle.SP_FileIcon))
+
+            # 设置状态颜色
+            if is_system:
+                item.setForeground(3, QBrush(Qt.red))
+            else:
+                item.setForeground(3, QBrush(Qt.green))
+
+            self.file_list.addTopLevelItem(item)
+
+        # 调整列宽
+        self.file_list.resizeColumnToContents(0)
+        self.file_list.resizeColumnToContents(1)
+        self.file_list.resizeColumnToContents(3)
+
+    # def is_system_file(self, file_path):
+    #     """判断是否为系统文件"""
+    #     # 获取文件名
+    #     filename = os.path.basename(file_path).lower()
+
+    #     # 系统文件扩展名列表
+    #     system_extensions = [
+    #         '.sys', '.dll', '.exe', '.com', '.bat', '.cmd',
+    #         '.msi', '.msm', '.msp', '.mst', '.idb', '.pdb',
+    #         '.lib', '.obj', '.res', '.manifest', '.config'
+    #     ]
+
+    #     # 系统文件夹列表
+    #     system_folders = [
+    #         'windows', 'program files', 'program files (x86)',
+    #         'programdata', 'system32', 'syswow64'
+    #     ]
+
+    #     # 检查文件扩展名
+    #     if any(filename.endswith(ext) for ext in system_extensions):
+    #         return True
+
+    #     # 检查文件路径是否包含系统文件夹
+    #     path_lower = file_path.lower()
+    #     if any(folder in path_lower for folder in system_folders):
+    #         return True
+
+    #     # 检查隐藏文件
+    #     if os.name == 'nt':  # Windows系统
+    #         try:
+    #             import win32api
+    #             import win32con
+    #             attrs = win32api.GetFileAttributes(file_path)
+    #             if attrs & (win32con.FILE_ATTRIBUTE_HIDDEN | win32con.FILE_ATTRIBUTE_SYSTEM):
+    #                 return True
+    #         except:
+    #             pass
+
+    #     return False
+
+    def open_file_location(self, item):
+        """打开文件所在位置"""
+        # 获取完整文件路径
+        file_name = item.text(0)  # 文件名
+        file_dir = item.text(2)   # 文件所在目录
+
+        # 确保路径格式正确
+        if not file_dir:
+            QMessageBox.warning(self, "错误", "无法获取文件路径")
+            return
+
+        # 拼接完整路径
+        file_path = os.path.normpath(os.path.join(file_dir, file_name))
+
+        # 验证文件是否存在
+        if not os.path.exists(file_path):
+            QMessageBox.warning(self, "错误", f"文件不存在：{file_path}")
+            return
+
+        try:
+            if os.name == 'nt':  # Windows系统
+                # 使用explorer的/select参数打开文件所在位置并选中文件
+                subprocess.Popen(['explorer', '/select,', file_path])
+            elif os.name == 'posix':  # Linux/Mac系统
+                # 打开文件所在目录
+                subprocess.Popen(['xdg-open', os.path.dirname(file_path)])
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"无法打开文件位置：{str(e)}")
 
 
+class ScanThread(QThread):
+    """扫描文件夹的线程"""
+    progress_updated = pyqtSignal(int, str)
+    scan_completed = pyqtSignal(dict, list)
+
+    def __init__(self, path, include_subfolders, show_large_files):
+        super().__init__()
+        self.path = path
+        self.include_subfolders = include_subfolders
+        self.show_large_files = show_large_files
+        self._is_running = True
+
+    def run(self):
+        """执行扫描"""
+        folder_sizes = {}
+        large_files = []
+        total_size = 0
+        scanned_files = 0
+        total_files = 0
+
+        # 系统文件扩展名和文件夹列表（移到类成员变量）
+        system_extensions = ['.sys', '.dll', '.exe', '.com', '.bat', '.cmd',
+                             '.msi', '.msm', '.msp', '.mst', '.idb', '.pdb',
+                             '.lib', '.obj', '.res', '.manifest', '.config']
+        system_folders = ['windows', 'program files', 'program files (x86)',
+                          'programdata', 'system32', 'syswow64']
+
+        # 首先计算总文件数
+        self.progress_updated.emit(5, "正在统计文件数量...")
+        if self.include_subfolders:
+            for root, dirs, files in os.walk(self.path):
+                total_files += len(files)
+        else:
+            total_files = len([f for f in os.listdir(self.path)
+                              if os.path.isfile(os.path.join(self.path, f))])
+
+        if total_files == 0:
+            self.progress_updated.emit(100, "没有找到文件")
+            self.scan_completed.emit({}, [])
+            return
+
+        # 扫描文件
+        self.progress_updated.emit(10, "正在扫描文件...")
+        if self.include_subfolders:
+            for root, dirs, files in os.walk(self.path):
+                if not self._is_running:
+                    break
+
+                # 统计当前文件夹大小
+                folder_size = 0
+                for file in files:
+                    if not self._is_running:
+                        break
+
+                    file_path = os.path.join(root, file)
+                    try:
+                        file_size = os.path.getsize(file_path)
+                        folder_size += file_size
+                        total_size += file_size
+
+                        # 检查是否为大文件
+                        if self.show_large_files and file_size > 100 * 1024 * 1024:
+                            # 在扫描线程中判断是否为系统文件
+                            is_system = self._is_system_file(
+                                file_path, system_extensions, system_folders)
+                            large_files.append(
+                                (file_path, file_size, is_system))
+
+                        scanned_files += 1
+                        if scanned_files % 10 == 0:
+                            progress = 10 + \
+                                int(scanned_files / total_files * 80)
+                            self.progress_updated.emit(
+                                progress,
+                                f"已扫描 {scanned_files}/{total_files} 个文件..."
+                            )
+                    except (OSError, PermissionError):
+                        pass
+
+                # 记录文件夹大小
+                if folder_size > 0:
+                    folder_sizes[root] = folder_size
+        else:
+            for item in os.listdir(self.path):
+                if not self._is_running:
+                    break
+
+                item_path = os.path.join(self.path, item)
+                try:
+                    if os.path.isfile(item_path):
+                        file_size = os.path.getsize(item_path)
+                        total_size += file_size
+
+                        # 检查是否为大文件
+                        if self.show_large_files and file_size > 100 * 1024 * 1024:
+                            large_files.append((item_path, file_size))
+
+                        scanned_files += 1
+                        if scanned_files % 10 == 0:
+                            progress = 10 + \
+                                int(scanned_files / total_files * 80)
+                            self.progress_updated.emit(
+                                progress,
+                                f"已扫描 {scanned_files}/{total_files} 个文件..."
+                            )
+                    elif os.path.isdir(item_path):
+                        # 统计子文件夹大小
+                        folder_size = 0
+                        for root, dirs, files in os.walk(item_path):
+                            for file in files:
+                                if not self._is_running:
+                                    break
+
+                                file_path = os.path.join(root, file)
+                                try:
+                                    file_size = os.path.getsize(file_path)
+                                    folder_size += file_size
+                                    total_size += file_size
+
+                                    # 检查是否为大文件
+                                    if self.show_large_files and file_size > 100 * 1024 * 1024:
+                                        large_files.append(
+                                            (file_path, file_size))
+
+                                    scanned_files += 1
+                                    if scanned_files % 10 == 0:
+                                        progress = 10 + \
+                                            int(scanned_files /
+                                                total_files * 80)
+                                        self.progress_updated.emit(
+                                            progress,
+                                            f"已扫描 {scanned_files}/{total_files} 个文件..."
+                                        )
+                                except (OSError, PermissionError):
+                                    pass
+
+                        if folder_size > 0:
+                            folder_sizes[item_path] = folder_size
+                except (OSError, PermissionError):
+                    pass
+
+        # 按大小排序大文件
+        large_files.sort(key=lambda x: x[1], reverse=True)
+
+        # 完成扫描
+        self.progress_updated.emit(
+            100, f"扫描完成！总大小: {self.format_size(total_size)}")
+        self.scan_completed.emit(folder_sizes, large_files)
+
+    def _is_system_file(self, file_path, system_extensions, system_folders):
+        """判断是否为系统文件（辅助方法）"""
+        filename = os.path.basename(file_path).lower()
+
+        # 检查文件扩展名
+        if any(filename.endswith(ext) for ext in system_extensions):
+            return True
+
+        # 检查文件路径是否包含系统文件夹
+        path_lower = file_path.lower()
+        if any(folder in path_lower for folder in system_folders):
+            return True
+
+        return False
+
+    def stop(self):
+        """停止扫描"""
+        self._is_running = False
+        self.wait()
+
+    @staticmethod
+    def format_size(size):
+        """格式化文件大小"""
+        if size >= 1024 * 1024 * 1024:
+            return f"{size / (1024 * 1024 * 1024):.2f} GB"
+        elif size >= 1024 * 1024:
+            return f"{size / (1024 * 1024):.2f} MB"
+        elif size >= 1024:
+            return f"{size / 1024:.2f} KB"
+        else:
+            return f"{size} B"
+
+
+# ========== 功能4：PDF批量处理工具 ==========
 class PDFBatchPage(QWidget):
     def __init__(self):
         super().__init__()
