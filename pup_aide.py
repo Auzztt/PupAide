@@ -989,8 +989,13 @@ class DiskAnalyzerPage(QWidget):
         title.setFont(title_font)
         layout.addWidget(title)
 
+        # 统一的 QGroupBox 字体
+        group_font = QFont()
+        group_font.setPointSize(13)
+
         # 路径选择区域
         path_group = QGroupBox("选择要分析的路径")
+        path_group.setFont(group_font)  # 添加字体设置
         path_layout = QHBoxLayout()
 
         self.path_edit = QLineEdit()
@@ -1021,6 +1026,7 @@ class DiskAnalyzerPage(QWidget):
 
         # 扫描选项
         option_group = QGroupBox("扫描选项")
+        option_group.setFont(group_font)  # 添加字体设置
         option_layout = QVBoxLayout()
 
         self.check_subfolders = QCheckBox("包含子文件夹")
@@ -1092,24 +1098,25 @@ class DiskAnalyzerPage(QWidget):
         self.ax = self.figure.add_subplot(111)
 
         chart_group = QGroupBox("空间分布")
+        chart_group.setFont(group_font)  # 添加字体设置
         chart_layout = QVBoxLayout()
         chart_layout.addWidget(self.canvas)
         chart_group.setLayout(chart_layout)
 
         # 右侧：文件列表
         list_group = QGroupBox("大文件列表")
+        list_group.setFont(group_font)  # 添加字体设置
         list_layout = QVBoxLayout()
 
         self.file_list = QTreeWidget()
         self.file_list.itemDoubleClicked.connect(self.open_file_location)
-        self.file_list.setHeaderLabels(["文件名", "大小", "路径", "删除建议"])  # 添加表头
+        self.file_list.setHeaderLabels(["文件名", "大小", "路径", "删除建议"])
         self.file_list.setColumnWidth(0, 200)
         self.file_list.setColumnWidth(1, 100)
         self.file_list.setColumnWidth(2, 300)
         self.file_list.setColumnWidth(3, 100)
 
         list_layout.addWidget(self.file_list)
-
         list_group.setLayout(list_layout)
 
         result_layout.addWidget(chart_group, 1)
