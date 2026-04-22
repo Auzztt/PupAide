@@ -1,28 +1,32 @@
 import sys
 import os
 import hashlib
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QPushButton, QStackedWidget, QListWidget,
-                             QListWidgetItem, QLabel, QFrame, QMessageBox, QFileDialog,
-                             QTextEdit, QProgressBar, QGroupBox, QCheckBox,
-                             QLineEdit, QSplitter)
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QGroupBox, QCheckBox, QProgressBar,
-                             QFileDialog, QMessageBox, QTreeWidget, QTreeWidgetItem,
-                             QStyle)
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import subprocess
 from PyQt5.QtGui import QBrush
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QStackedWidget, QListWidget,
+                             QListWidgetItem, QLabel, QFrame, QMessageBox, QFileDialog,
+                             QTextEdit, QProgressBar, QGroupBox, QCheckBox,
+                             QLineEdit, QSplitter, QTabWidget, QComboBox, QFormLayout,
+                             QSlider, QColorDialog, QAbstractItemView, QSpinBox,
+                             QTreeWidget, QTreeWidgetItem, QHeaderView, QTableWidget, QTableWidgetItem)
+from PyQt5.QtGui import QColor
+import PyPDF2
+import pdfplumber
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+import io
 
 
 # 获取全局应用对象，用于后续强制刷新样式
 qApp = None
 
-# TODO：添加全局查找文件的功能
+# TODO-1 添加全局查找文件的功能，并添加到菜单栏中
 
 
 class PupAideMainWindow(QMainWindow):
@@ -165,7 +169,8 @@ class PupAideMainWindow(QMainWindow):
             "💾 磁盘空间分析器",
             "📄 PDF 批量处理",
             "📝 Word/Excel 批量替换",
-            "🔍 OCR 文字识别工具"
+            "🔍 OCR 文字识别工具",
+            "✂️ 文件名称提取器"  # 新增功能
         ]
         for func in functions:
             item = QListWidgetItem(func)
@@ -174,7 +179,7 @@ class PupAideMainWindow(QMainWindow):
         left_layout.addWidget(self.nav_list)
 
         # 底部信息
-        info_label = QLabel("版本 1.0\n拖动右侧边缘可调整菜单宽度")
+        info_label = QLabel("版本 1.1.0\n拖动右侧边缘可调整菜单宽度")
         info_font = QFont()
         info_font.setPointSize(12)
         info_label.setFont(info_font)
@@ -201,6 +206,7 @@ class PupAideMainWindow(QMainWindow):
         self.page_pdf = PDFBatchPage()
         self.page_office = OfficeBatchPage()
         self.page_ocr = OCRPage()
+        self.page_namecut = FileNameCut()  # 新增功能页面实例
 
         self.right_panel.addWidget(self.page_duplicate)
         self.right_panel.addWidget(self.page_sync)
@@ -208,6 +214,7 @@ class PupAideMainWindow(QMainWindow):
         self.right_panel.addWidget(self.page_pdf)
         self.right_panel.addWidget(self.page_office)
         self.right_panel.addWidget(self.page_ocr)
+        self.right_panel.addWidget(self.page_namecut)  # 新增功能页面添加到右侧面板
 
         # 添加导航栏点击事件
         self.nav_list.currentRowChanged.connect(
@@ -294,7 +301,7 @@ class DuplicateFilePage(QWidget):
         # 勾选框：只调整大小，不改变勾选样式
         self.check_subfolders = QCheckBox("包含子文件夹")
         check_font = QFont()
-        check_font.setPointSize(12)
+        check_font.setPointSize(10)
         self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(True)
         # 强制只调整大小，不影响默认勾选图标
@@ -603,13 +610,49 @@ class SyncBackupPage(QWidget):
         option_layout = QVBoxLayout(option_group)
 
         self.check_subfolders = QCheckBox("包含子文件夹")
+        check_font = QFont()
+        check_font.setPointSize(10)
+        self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(True)
+        self.check_subfolders.setStyleSheet("""
+            QCheckBox {
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 30px;
+                height: 30px;
+            }
+        """)
 
         self.check_overwrite = QCheckBox("覆盖已存在的文件")
+        check_font = QFont()
+        check_font.setPointSize(10)
+        self.check_overwrite.setFont(check_font)
         self.check_overwrite.setChecked(True)
+        self.check_overwrite.setStyleSheet("""
+            QCheckBox {
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 30px;
+                height: 30px;
+            }
+        """)
 
         self.check_delete = QCheckBox("删除目标文件夹中多余的文件（保持完全一致）")
+        check_font = QFont()
+        check_font.setPointSize(10)
+        self.check_delete.setFont(check_font)
         self.check_delete.setChecked(False)
+        self.check_delete.setStyleSheet("""
+                    QCheckBox {
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 30px;
+                height: 30px;
+            }
+        """)
 
         option_layout.addWidget(self.check_subfolders)
         option_layout.addWidget(self.check_overwrite)
@@ -1030,10 +1073,34 @@ class DiskAnalyzerPage(QWidget):
         option_layout = QVBoxLayout()
 
         self.check_subfolders = QCheckBox("包含子文件夹")
+        check_font = QFont()
+        check_font.setPointSize(10)
+        self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(True)
+        self.check_subfolders.setStyleSheet("""
+            QCheckBox {
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 30px;
+                height: 30px;
+            }
+        """)
 
         self.check_large_files = QCheckBox("显示大文件列表 (大于100MB)")
+        check_font = QFont()
+        check_font.setPointSize(10)
+        self.check_large_files.setFont(check_font)
         self.check_large_files.setChecked(True)
+        self.check_large_files.setStyleSheet("""
+            QCheckBox {
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 30px;
+                height: 30px;
+            }
+        """)
 
         option_layout.addWidget(self.check_subfolders)
         option_layout.addWidget(self.check_large_files)
@@ -1567,26 +1634,1054 @@ class ScanThread(QThread):
 class PDFBatchPage(QWidget):
     def __init__(self):
         super().__init__()
+        self.pdf_files = []  # 存储选中的PDF文件列表
+        self.setup_ui()
+
+    def setup_ui(self):
+        """初始化UI界面"""
         layout = QVBoxLayout(self)
+        layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
-        label = QLabel("📄 PDF 批量处理工具")
+
+        # 标题
+        title = QLabel("📄 PDF 批量处理工具")
         title_font = QFont()
         title_font.setPointSize(16)
         title_font.setBold(True)
-        label.setFont(title_font)
-        label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet("color: #666;")
-        layout.addWidget(label)
+        title.setFont(title_font)
+        layout.addWidget(title)
 
-        info = QLabel("此功能正在开发中，敬请期待...")
-        info_font = QFont()
-        info_font.setPointSize(14)
-        info.setFont(info_font)
-        info.setAlignment(Qt.AlignCenter)
-        info.setStyleSheet("color: #999; margin-top: 20px;")
+        # 添加注释文本
+        subtitle = QLabel("该功能暂未测试")
+        subtitle.setFont(QFont("Arial", 12))  # 使用较小的字体
+        subtitle.setStyleSheet("color: #888888;")  # 设置为灰色
+        layout.addWidget(subtitle)
+
+        # 统一的 QGroupBox 字体
+        group_font = QFont()
+        group_font.setPointSize(13)
+
+        # 文件选择区域
+        file_group = QGroupBox("选择PDF文件")
+        file_group.setFont(group_font)
+        file_layout = QVBoxLayout(file_group)
+
+        # 文件列表
+        self.file_list = QListWidget()
+        self.file_list.setDragDropMode(
+            QAbstractItemView.InternalMove)  # 允许拖拽排序
+        file_layout.addWidget(self.file_list)
+
+        # 文件操作按钮
+        file_btn_layout = QHBoxLayout()
+
+        self.btn_add = QPushButton("➕ 添加文件")
+        self.btn_add.clicked.connect(self.add_files)
+        self.btn_add.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+
+        self.btn_remove = QPushButton("➖ 移除选中")
+        self.btn_remove.clicked.connect(self.remove_files)
+        self.btn_remove.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B6B;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF5252;
+            }
+        """)
+
+        self.btn_clear = QPushButton("🗑️ 清空列表")
+        self.btn_clear.clicked.connect(self.clear_files)
+        self.btn_clear.setStyleSheet("""
+            QPushButton {
+                background-color: #999;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #777;
+            }
+        """)
+
+        file_btn_layout.addWidget(self.btn_add)
+        file_btn_layout.addWidget(self.btn_remove)
+        file_btn_layout.addWidget(self.btn_clear)
+        file_layout.addLayout(file_btn_layout)
+
+        layout.addWidget(file_group)
+
+        # 功能选项卡
+        self.tab_widget = QTabWidget()
+
+        # 合并PDF标签页
+        self.merge_tab = QWidget()
+        self.setup_merge_tab()
+        self.tab_widget.addTab(self.merge_tab, "📑 合并PDF")
+
+        # 拆分PDF标签页
+        self.split_tab = QWidget()
+        self.setup_split_tab()
+        self.tab_widget.addTab(self.split_tab, "✂️ 拆分PDF")
+
+        # 添加水印标签页
+        self.watermark_tab = QWidget()
+        self.setup_watermark_tab()
+        self.tab_widget.addTab(self.watermark_tab, "💧 添加水印")
+
+        # 提取文字标签页
+        self.extract_tab = QWidget()
+        self.setup_extract_tab()
+        self.tab_widget.addTab(self.extract_tab, "📝 提取文字")
+
+        # 加密/解密标签页
+        self.encrypt_tab = QWidget()
+        self.setup_encrypt_tab()
+        self.tab_widget.addTab(self.encrypt_tab, "🔐 加密/解密")
+
+        layout.addWidget(self.tab_widget)
+
+        # 进度条
+        self.progress = QProgressBar()
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+
+        # 结果显示区域
+        result_group = QGroupBox("处理结果")
+        result_group.setFont(group_font)
+        result_layout = QVBoxLayout(result_group)
+
+        self.result_text = QTextEdit()
+        text_font = QFont()
+        text_font.setPointSize(12)
+        self.result_text.setFont(text_font)
+        self.result_text.setReadOnly(True)
+        self.result_text.setMinimumHeight(200)
+        result_layout.addWidget(self.result_text)
+
+        layout.addWidget(result_group)
+
+    def setup_merge_tab(self):
+        """设置合并PDF标签页"""
+        layout = QVBoxLayout(self.merge_tab)
+        layout.setSpacing(15)
+
+        # 说明
+        info = QLabel("将多个PDF文件合并为一个文件，支持拖拽调整合并顺序")
+        info.setStyleSheet("color: #666; margin-bottom: 10px;")
         layout.addWidget(info)
 
+        # 输出文件设置
+        output_layout = QHBoxLayout()
+        output_layout.addWidget(QLabel("输出文件名:"))
 
+        self.merge_output = QLineEdit()
+        self.merge_output.setPlaceholderText("合并后的文件名.pdf")
+        output_layout.addWidget(self.merge_output)
+
+        self.btn_merge_browse = QPushButton("📂 选择保存位置")
+        self.btn_merge_browse.clicked.connect(self.browse_output_file)
+        self.btn_merge_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+        output_layout.addWidget(self.btn_merge_browse)
+
+        layout.addLayout(output_layout)
+
+        # 合并按钮
+        self.btn_merge = QPushButton("🔗 开始合并")
+        self.btn_merge.clicked.connect(self.merge_pdfs)
+        self.btn_merge.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 10px 15px;
+                border-radius: 6px;
+                min-height: 35px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        layout.addWidget(self.btn_merge)
+
+        layout.addStretch()
+
+    def setup_split_tab(self):
+        """设置拆分PDF标签页"""
+        layout = QVBoxLayout(self.split_tab)
+        layout.setSpacing(15)
+
+        # 说明
+        info = QLabel("从PDF文件中提取指定页面，生成新的PDF文件")
+        info.setStyleSheet("color: #666; margin-bottom: 10px;")
+        layout.addWidget(info)
+
+        # 页面范围设置
+        range_layout = QHBoxLayout()
+        range_layout.addWidget(QLabel("页面范围:"))
+
+        self.split_range = QLineEdit()
+        self.split_range.setPlaceholderText("例如: 1,3,5-10,15")
+        range_layout.addWidget(self.split_range)
+
+        layout.addLayout(range_layout)
+
+        # 输出文件设置
+        output_layout = QHBoxLayout()
+        output_layout.addWidget(QLabel("输出文件名:"))
+
+        self.split_output = QLineEdit()
+        self.split_output.setPlaceholderText("拆分后的文件名.pdf")
+        output_layout.addWidget(self.split_output)
+
+        self.btn_split_browse = QPushButton("📂 选择保存位置")
+        self.btn_split_browse.clicked.connect(self.browse_output_file)
+        self.btn_split_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+        output_layout.addWidget(self.btn_split_browse)
+
+        layout.addLayout(output_layout)
+
+        # 拆分按钮
+        self.btn_split = QPushButton("✂️ 开始拆分")
+        self.btn_split.clicked.connect(self.split_pdf)
+        self.btn_split.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 10px 15px;
+                border-radius: 6px;
+                min-height: 35px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        layout.addWidget(self.btn_split)
+
+        layout.addStretch()
+
+    def setup_watermark_tab(self):
+        """设置添加水印标签页"""
+        layout = QVBoxLayout(self.watermark_tab)
+        layout.setSpacing(15)
+
+        # 说明
+        info = QLabel("为PDF文件添加文本水印")
+        info.setStyleSheet("color: #666; margin-bottom: 10px;")
+        layout.addWidget(info)
+
+        # 水印文本设置
+        text_layout = QHBoxLayout()
+        text_layout.addWidget(QLabel("水印文本:"))
+
+        self.watermark_text = QLineEdit()
+        self.watermark_text.setPlaceholderText("例如: 机密文档")
+        text_layout.addWidget(self.watermark_text)
+
+        layout.addLayout(text_layout)
+
+        # 水印设置
+        settings_layout = QFormLayout()
+
+        self.watermark_opacity = QSlider(Qt.Horizontal)
+        self.watermark_opacity.setRange(10, 100)
+        self.watermark_opacity.setValue(30)
+        self.watermark_opacity.setTickPosition(QSlider.TicksBelow)
+        self.watermark_opacity.setTickInterval(10)
+        settings_layout.addRow("透明度:", self.watermark_opacity)
+
+        self.watermark_rotation = QSlider(Qt.Horizontal)
+        self.watermark_rotation.setRange(0, 360)
+        self.watermark_rotation.setValue(45)
+        self.watermark_rotation.setTickPosition(QSlider.TicksBelow)
+        self.watermark_rotation.setTickInterval(45)
+        settings_layout.addRow("旋转角度:", self.watermark_rotation)
+
+        self.watermark_color = QPushButton("选择颜色")
+        self.watermark_color.clicked.connect(self.choose_watermark_color)
+        self.watermark_color.setStyleSheet(
+            "background-color: #999999; color: white;")
+        settings_layout.addRow("水印颜色:", self.watermark_color)
+
+        layout.addLayout(settings_layout)
+
+        # 输出文件设置
+        output_layout = QHBoxLayout()
+        output_layout.addWidget(QLabel("输出文件名:"))
+
+        self.watermark_output = QLineEdit()
+        self.watermark_output.setPlaceholderText("添加水印后的文件名.pdf")
+        output_layout.addWidget(self.watermark_output)
+
+        self.btn_watermark_browse = QPushButton("📂 选择保存位置")
+        self.btn_watermark_browse.clicked.connect(self.browse_output_file)
+        self.btn_watermark_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+        output_layout.addWidget(self.btn_watermark_browse)
+
+        layout.addLayout(output_layout)
+
+        # 添加水印按钮
+        self.btn_watermark = QPushButton("💧 添加水印")
+        self.btn_watermark.clicked.connect(self.add_watermark)
+        self.btn_watermark.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 10px 15px;
+                border-radius: 6px;
+                min-height: 35px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        layout.addWidget(self.btn_watermark)
+
+        layout.addStretch()
+
+        # 水印颜色
+        self.watermark_rgb = (153, 153, 153)  # 默认灰色
+
+    def setup_extract_tab(self):
+        """设置提取文字标签页"""
+        layout = QVBoxLayout(self.extract_tab)
+        layout.setSpacing(15)
+
+        # 说明
+        info = QLabel("从PDF文件中提取文字内容")
+        info.setStyleSheet("color: #666; margin-bottom: 10px;")
+        layout.addWidget(info)
+
+        # 提取选项
+        options_layout = QVBoxLayout()
+
+        self.extract_all = QCheckBox("提取所有页面")
+        self.extract_all.setChecked(True)
+        options_layout.addWidget(self.extract_all)
+
+        page_range_layout = QHBoxLayout()
+        page_range_layout.addWidget(QLabel("指定页面范围:"))
+
+        self.extract_range = QLineEdit()
+        self.extract_range.setPlaceholderText("例如: 1,3,5-10,15")
+        self.extract_range.setEnabled(False)
+        page_range_layout.addWidget(self.extract_range)
+
+        options_layout.addLayout(page_range_layout)
+
+        self.extract_all.toggled.connect(self.extract_range.setEnabled)
+
+        layout.addLayout(options_layout)
+
+        # 输出文件设置
+        output_layout = QHBoxLayout()
+        output_layout.addWidget(QLabel("输出文件名:"))
+
+        self.extract_output = QLineEdit()
+        self.extract_output.setPlaceholderText("提取的文字保存为.txt文件")
+        output_layout.addWidget(self.extract_output)
+
+        self.btn_extract_browse = QPushButton("📂 选择保存位置")
+        self.btn_extract_browse.clicked.connect(self.browse_output_file)
+        self.btn_extract_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+        output_layout.addWidget(self.btn_extract_browse)
+
+        layout.addLayout(output_layout)
+
+        # 提取文字按钮
+        self.btn_extract = QPushButton("📝 提取文字")
+        self.btn_extract.clicked.connect(self.extract_text)
+        self.btn_extract.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 10px 15px;
+                border-radius: 6px;
+                min-height: 35px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        layout.addWidget(self.btn_extract)
+
+        layout.addStretch()
+
+    def setup_encrypt_tab(self):
+        """设置加密/解密标签页"""
+        layout = QVBoxLayout(self.encrypt_tab)
+        layout.setSpacing(15)
+
+        # 说明
+        info = QLabel("为PDF文件添加密码保护或移除密码")
+        info.setStyleSheet("color: #666; margin-bottom: 10px;")
+        layout.addWidget(info)
+
+        # 操作选择
+        operation_layout = QHBoxLayout()
+        operation_layout.addWidget(QLabel("操作类型:"))
+
+        self.encrypt_operation = QComboBox()
+        self.encrypt_operation.addItems(["加密PDF", "解密PDF"])
+        operation_layout.addWidget(self.encrypt_operation)
+
+        layout.addLayout(operation_layout)
+
+        # 密码设置
+        password_layout = QHBoxLayout()
+        password_layout.addWidget(QLabel("密码:"))
+
+        self.encrypt_password = QLineEdit()
+        self.encrypt_password.setEchoMode(QLineEdit.Password)
+        password_layout.addWidget(self.encrypt_password)
+
+        layout.addLayout(password_layout)
+
+        # 输出文件设置
+        output_layout = QHBoxLayout()
+        output_layout.addWidget(QLabel("输出文件名:"))
+
+        self.encrypt_output = QLineEdit()
+        self.encrypt_output.setPlaceholderText("处理后的文件名.pdf")
+        output_layout.addWidget(self.encrypt_output)
+
+        self.btn_encrypt_browse = QPushButton("📂 选择保存位置")
+        self.btn_encrypt_browse.clicked.connect(self.browse_output_file)
+        self.btn_encrypt_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+        output_layout.addWidget(self.btn_encrypt_browse)
+
+        layout.addLayout(output_layout)
+
+        # 加密/解密按钮
+        self.btn_encrypt = QPushButton("🔐 开始处理")
+        self.btn_encrypt.clicked.connect(self.encrypt_pdf)
+        self.btn_encrypt.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 10px 15px;
+                border-radius: 6px;
+                min-height: 35px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        layout.addWidget(self.btn_encrypt)
+
+        layout.addStretch()
+
+    def add_files(self):
+        """添加PDF文件到列表"""
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "选择PDF文件", "", "PDF文件 (*.pdf)")
+
+        if files:
+            for file in files:
+                if file not in self.pdf_files:
+                    self.pdf_files.append(file)
+                    self.file_list.addItem(os.path.basename(file))
+
+    def remove_files(self):
+        """从列表中移除选中的文件"""
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "提示", "请先选择要移除的文件！")
+            return
+
+        for item in selected_items:
+            row = self.file_list.row(item)
+            self.file_list.takeItem(row)
+            self.pdf_files.pop(row)
+
+    def clear_files(self):
+        """清空文件列表"""
+        if not self.pdf_files:
+            return
+
+        reply = QMessageBox.question(
+            self, "确认清空", "确定要清空所有文件吗？",
+            QMessageBox.Yes | QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            self.pdf_files.clear()
+            self.file_list.clear()
+
+    def browse_output_file(self):
+        """浏览并选择输出文件位置"""
+        sender = self.sender()
+        if sender == self.btn_merge_browse:
+            output = self.merge_output
+            default_name = "合并后的文件.pdf"
+        elif sender == self.btn_split_browse:
+            output = self.split_output
+            default_name = "拆分后的文件.pdf"
+        elif sender == self.btn_watermark_browse:
+            output = self.watermark_output
+            default_name = "添加水印后的文件.pdf"
+        elif sender == self.btn_extract_browse:
+            output = self.extract_output
+            default_name = "提取的文字.txt"
+        elif sender == self.btn_encrypt_browse:
+            output = self.encrypt_output
+            default_name = "处理后的文件.pdf"
+        else:
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "选择保存位置", default_name,
+            "PDF文件 (*.pdf);;文本文件 (*.txt)")
+
+        if file_path:
+            output.setText(file_path)
+
+    def choose_watermark_color(self):
+        """选择水印颜色"""
+        color = QColorDialog.getColor()
+        if color.isValid():
+            self.watermark_rgb = (color.red(), color.green(), color.blue())
+            self.watermark_color.setStyleSheet(
+                f"background-color: {color.name()}; color: white;")
+
+    def merge_pdfs(self):
+        """合并多个PDF文件"""
+        if len(self.pdf_files) < 2:
+            QMessageBox.warning(self, "提示", "请至少选择两个PDF文件进行合并！")
+            return
+
+        output_path = self.merge_output.text()
+        if not output_path:
+            QMessageBox.warning(self, "提示", "请指定输出文件名！")
+            return
+
+        self.result_text.clear()
+        self.result_text.append("🔗 开始合并PDF文件...\n")
+        self.result_text.append("=" * 60 + "\n\n")
+
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+
+        try:
+            merger = PyPDF2.PdfMerger()
+
+            for i, pdf_file in enumerate(self.pdf_files):
+                self.result_text.append(
+                    f"正在处理: {os.path.basename(pdf_file)}\n")
+                merger.append(pdf_file)
+
+                # 更新进度
+                progress = int((i + 1) / len(self.pdf_files) * 90)
+                self.progress.setValue(progress)
+                QApplication.processEvents()
+
+            # 保存合并后的PDF
+            merger.write(output_path)
+            merger.close()
+
+            self.progress.setValue(100)
+            self.result_text.append(f"\n✅ 合并完成！文件已保存到: {output_path}\n")
+
+            # 询问是否打开文件
+            reply = QMessageBox.question(
+                self, "完成", "PDF合并完成！是否打开文件？",
+                QMessageBox.Yes | QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                if os.name == 'nt':  # Windows系统
+                    os.startfile(output_path)
+                elif os.name == 'posix':  # Linux/Mac系统
+                    subprocess.Popen(['xdg-open', output_path])
+
+        except Exception as e:
+            self.result_text.append(f"\n❌ 合并失败: {str(e)}\n")
+            QMessageBox.critical(self, "错误", f"合并PDF失败: {str(e)}")
+
+        self.progress.setVisible(False)
+
+    def split_pdf(self):
+        """拆分PDF文件"""
+        if len(self.pdf_files) != 1:
+            QMessageBox.warning(self, "提示", "请选择一个PDF文件进行拆分！")
+            return
+
+        output_path = self.split_output.text()
+        if not output_path:
+            QMessageBox.warning(self, "提示", "请指定输出文件名！")
+            return
+
+        page_range = self.split_range.text()
+        if not page_range:
+            QMessageBox.warning(self, "提示", "请指定要提取的页面范围！")
+            return
+
+        self.result_text.clear()
+        self.result_text.append("✂️ 开始拆分PDF文件...\n")
+        self.result_text.append("=" * 60 + "\n\n")
+
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+
+        try:
+            # 解析页面范围
+            pages_to_extract = self.parse_page_range(page_range)
+            if not pages_to_extract:
+                QMessageBox.warning(self, "提示", "无效的页面范围！")
+                self.progress.setVisible(False)
+                return
+
+            # 打开PDF文件
+            pdf_reader = PyPDF2.PdfReader(self.pdf_files[0])
+            total_pages = len(pdf_reader.pages)
+
+            self.result_text.append(f"文件总页数: {total_pages}\n")
+            self.result_text.append(
+                f"提取页面: {', '.join(map(str, pages_to_extract))}\n\n")
+
+            # 创建新的PDF
+            pdf_writer = PyPDF2.PdfWriter()
+
+            # 添加指定页面
+            for page_num in pages_to_extract:
+                if page_num < 1 or page_num > total_pages:
+                    self.result_text.append(f"⚠️ 页面 {page_num} 超出范围，已跳过\n")
+                    continue
+
+                pdf_writer.add_page(pdf_reader.pages[page_num - 1])
+                self.result_text.append(f"✅ 已添加页面 {page_num}\n")
+
+                # 更新进度
+                progress = int(pages_to_extract.index(
+                    page_num) / len(pages_to_extract) * 90)
+                self.progress.setValue(progress)
+                QApplication.processEvents()
+
+            # 保存拆分后的PDF
+            with open(output_path, 'wb') as output_file:
+                pdf_writer.write(output_file)
+
+            self.progress.setValue(100)
+            self.result_text.append(f"\n✅ 拆分完成！文件已保存到: {output_path}\n")
+
+            # 询问是否打开文件
+            reply = QMessageBox.question(
+                self, "完成", "PDF拆分完成！是否打开文件？",
+                QMessageBox.Yes | QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                if os.name == 'nt':  # Windows系统
+                    os.startfile(output_path)
+                elif os.name == 'posix':  # Linux/Mac系统
+                    subprocess.Popen(['xdg-open', output_path])
+
+        except Exception as e:
+            self.result_text.append(f"\n❌ 拆分失败: {str(e)}\n")
+            QMessageBox.critical(self, "错误", f"拆分PDF失败: {str(e)}")
+
+        self.progress.setVisible(False)
+
+    def add_watermark(self):
+        """为PDF添加水印"""
+        if len(self.pdf_files) != 1:
+            QMessageBox.warning(self, "提示", "请选择一个PDF文件添加水印！")
+            return
+
+        output_path = self.watermark_output.text()
+        if not output_path:
+            QMessageBox.warning(self, "提示", "请指定输出文件名！")
+            return
+
+        watermark_text = self.watermark_text.text()
+        if not watermark_text:
+            QMessageBox.warning(self, "提示", "请输入水印文本！")
+            return
+
+        self.result_text.clear()
+        self.result_text.append("💧 开始添加水印...\n")
+        self.result_text.append("=" * 60 + "\n\n")
+
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+
+        try:
+            # 创建水印PDF
+            watermark_pdf = self.create_watermark_pdf(
+                watermark_text,
+                self.watermark_opacity.value() / 100,
+                self.watermark_rotation.value(),
+                self.watermark_rgb
+            )
+
+            # 打开原始PDF
+            pdf_reader = PyPDF2.PdfReader(self.pdf_files[0])
+            pdf_writer = PyPDF2.PdfWriter()
+
+            # 为每一页添加水印
+            total_pages = len(pdf_reader.pages)
+            for i in range(total_pages):
+                page = pdf_reader.pages[i]
+                page.merge_page(watermark_pdf.pages[0])
+                pdf_writer.add_page(page)
+
+                # 更新进度
+                progress = int((i + 1) / total_pages * 90)
+                self.progress.setValue(progress)
+                QApplication.processEvents()
+
+            # 保存添加水印后的PDF
+            with open(output_path, 'wb') as output_file:
+                pdf_writer.write(output_file)
+
+            self.progress.setValue(100)
+            self.result_text.append(f"\n✅ 水印添加完成！文件已保存到: {output_path}\n")
+
+            # 询问是否打开文件
+            reply = QMessageBox.question(
+                self, "完成", "水印添加完成！是否打开文件？",
+                QMessageBox.Yes | QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                if os.name == 'nt':  # Windows系统
+                    os.startfile(output_path)
+                elif os.name == 'posix':  # Linux/Mac系统
+                    subprocess.Popen(['xdg-open', output_path])
+
+        except Exception as e:
+            self.result_text.append(f"\n❌ 添加水印失败: {str(e)}\n")
+            QMessageBox.critical(self, "错误", f"添加水印失败: {str(e)}")
+
+        self.progress.setVisible(False)
+
+    def create_watermark_pdf(self, text, opacity, rotation, color):
+        """创建水印PDF"""
+        # 创建一个A4大小的PDF页面
+        packet = io.BytesIO()
+        can = canvas.Canvas(packet, pagesize=A4)
+
+        # 设置水印样式
+        can.setFillColorRGB(color[0]/255, color[1] /
+                            255, color[2]/255, alpha=opacity)
+        can.setFont("Helvetica", 60)
+
+        # 保存当前状态
+        can.saveState()
+
+        # 旋转画布
+        can.translate(A4[0] / 2, A4[1] / 2)
+        can.rotate(rotation)
+
+        # 绘制水印文本
+        can.drawCentredString(0, 0, text)
+
+        # 恢复状态
+        can.restoreState()
+
+        # 保存画布
+        can.save()
+
+        # 将BytesIO转换为PdfReader对象
+        packet.seek(0)
+        watermark_pdf = PyPDF2.PdfReader(packet)
+
+        return watermark_pdf
+
+    def extract_text(self):
+        """从PDF中提取文字"""
+        if len(self.pdf_files) != 1:
+            QMessageBox.warning(self, "提示", "请选择一个PDF文件提取文字！")
+            return
+
+        output_path = self.extract_output.text()
+        if not output_path:
+            QMessageBox.warning(self, "提示", "请指定输出文件名！")
+            return
+
+        self.result_text.clear()
+        self.result_text.append("📝 开始提取文字...\n")
+        self.result_text.append("=" * 60 + "\n\n")
+
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+
+        try:
+            # 打开PDF文件
+            with pdfplumber.open(self.pdf_files[0]) as pdf:
+                total_pages = len(pdf.pages)
+
+                # 确定要提取的页面
+                if self.extract_all.isChecked():
+                    pages_to_extract = range(1, total_pages + 1)
+                else:
+                    page_range = self.extract_range.text()
+                    pages_to_extract = self.parse_page_range(page_range)
+                    if not pages_to_extract:
+                        QMessageBox.warning(self, "提示", "无效的页面范围！")
+                        self.progress.setVisible(False)
+                        return
+
+                # 提取文字
+                extracted_text = ""
+                for i, page_num in enumerate(pages_to_extract):
+                    if page_num < 1 or page_num > total_pages:
+                        self.result_text.append(f"⚠️ 页面 {page_num} 超出范围，已跳过\n")
+                        continue
+
+                    page = pdf.pages[page_num - 1]
+                    text = page.extract_text()
+                    if text:
+                        extracted_text += f"--- 第 {page_num} 页 ---\n\n{text}\n\n"
+
+                    # 更新进度
+                    progress = int((i + 1) / len(pages_to_extract) * 90)
+                    self.progress.setValue(progress)
+                    QApplication.processEvents()
+
+                # 保存提取的文字
+                with open(output_path, 'w', encoding='utf-8') as output_file:
+                    output_file.write(extracted_text)
+
+                self.progress.setValue(100)
+                self.result_text.append(f"\n✅ 文字提取完成！已保存到: {output_path}\n")
+
+                # 询问是否打开文件
+                reply = QMessageBox.question(
+                    self, "完成", "文字提取完成！是否打开文件？",
+                    QMessageBox.Yes | QMessageBox.No)
+
+                if reply == QMessageBox.Yes:
+                    if os.name == 'nt':  # Windows系统
+                        os.startfile(output_path)
+                    elif os.name == 'posix':  # Linux/Mac系统
+                        subprocess.Popen(['xdg-open', output_path])
+
+        except Exception as e:
+            self.result_text.append(f"\n❌ 提取文字失败: {str(e)}\n")
+            QMessageBox.critical(self, "错误", f"提取文字失败: {str(e)}")
+
+        self.progress.setVisible(False)
+
+    def encrypt_pdf(self):
+        """加密或解密PDF文件"""
+        if len(self.pdf_files) != 1:
+            QMessageBox.warning(self, "提示", "请选择一个PDF文件进行处理！")
+            return
+
+        output_path = self.encrypt_output.text()
+        if not output_path:
+            QMessageBox.warning(self, "提示", "请指定输出文件名！")
+            return
+
+        password = self.encrypt_password.text()
+        if not password:
+            QMessageBox.warning(self, "提示", "请输入密码！")
+            return
+
+        operation = self.encrypt_operation.currentText()
+
+        self.result_text.clear()
+        self.result_text.append(f"🔐 开始{operation}...\n")
+        self.result_text.append("=" * 60 + "\n\n")
+
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+
+        try:
+            if operation == "加密PDF":
+                # 加密PDF
+                pdf_reader = PyPDF2.PdfReader(self.pdf_files[0])
+                pdf_writer = PyPDF2.PdfWriter()
+
+                # 复制所有页面
+                for page in pdf_reader.pages:
+                    pdf_writer.add_page(page)
+
+                # 添加密码保护
+                pdf_writer.encrypt(password)
+
+                # 保存加密后的PDF
+                with open(output_path, 'wb') as output_file:
+                    pdf_writer.write(output_file)
+
+                self.result_text.append(f"✅ PDF加密完成！密码已设置为: {password}\n")
+
+            else:  # 解密PDF
+                # 解密PDF
+                pdf_reader = PyPDF2.PdfReader(self.pdf_files[0])
+
+                # 检查PDF是否加密
+                if not pdf_reader.is_encrypted:
+                    QMessageBox.warning(self, "提示", "该PDF文件未加密！")
+                    self.progress.setVisible(False)
+                    return
+
+                # 尝试解密
+                try:
+                    pdf_reader.decrypt(password)
+                except:
+                    QMessageBox.warning(self, "提示", "密码错误，无法解密PDF！")
+                    self.progress.setVisible(False)
+                    return
+
+                pdf_writer = PyPDF2.PdfWriter()
+
+                # 复制所有页面
+                for page in pdf_reader.pages:
+                    pdf_writer.add_page(page)
+
+                # 保存解密后的PDF
+                with open(output_path, 'wb') as output_file:
+                    pdf_writer.write(output_file)
+
+                self.result_text.append(f"✅ PDF解密完成！\n")
+
+            self.progress.setValue(100)
+            self.result_text.append(f"文件已保存到: {output_path}\n")
+
+            # 询问是否打开文件
+            reply = QMessageBox.question(
+                self, "完成", f"{operation}完成！是否打开文件？",
+                QMessageBox.Yes | QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                if os.name == 'nt':  # Windows系统
+                    os.startfile(output_path)
+                elif os.name == 'posix':  # Linux/Mac系统
+                    subprocess.Popen(['xdg-open', output_path])
+
+        except Exception as e:
+            self.result_text.append(f"\n❌ {operation}失败: {str(e)}\n")
+            QMessageBox.critical(self, "错误", f"{operation}失败: {str(e)}")
+
+        self.progress.setVisible(False)
+
+    def parse_page_range(self, page_range):
+        """解析页面范围字符串，返回页面列表"""
+        pages = []
+        parts = page_range.split(',')
+
+        for part in parts:
+            part = part.strip()
+            if '-' in part:
+                # 处理范围，如 "5-10"
+                start, end = part.split('-')
+                try:
+                    start = int(start)
+                    end = int(end)
+                    pages.extend(range(start, end + 1))
+                except ValueError:
+                    continue
+            else:
+                # 处理单个页面，如 "5"
+                try:
+                    pages.append(int(part))
+                except ValueError:
+                    continue
+
+        # 去重并排序
+        pages = sorted(list(set(pages)))
+        return pages
+
+
+# ========== 功能5：Word/Excel 批量替换与生成 ==========
 class OfficeBatchPage(QWidget):
     def __init__(self):
         super().__init__()
@@ -1608,6 +2703,422 @@ class OfficeBatchPage(QWidget):
         info.setAlignment(Qt.AlignCenter)
         info.setStyleSheet("color: #999; margin-top: 20px;")
         layout.addWidget(info)
+
+
+# ========== 功能6：文件名称提取器 ==========
+# 新增功能: 文件名称提取器，批量提取文件名中的关键信息
+class FileNameCut(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.folder_path = None
+        self.extracted_data = []
+        self.setup_ui()
+
+    def setup_ui(self):
+        """初始化UI界面"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # 标题
+        title = QLabel("✂️ 文件名称提取器")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        layout.addWidget(title)
+
+        # 文件夹选择区域
+        folder_group = QGroupBox("选择文件夹")
+        group_font = QFont()
+        group_font.setPointSize(13)
+        folder_group.setFont(group_font)
+        folder_layout = QVBoxLayout(folder_group)
+
+        # 文件夹路径选择行
+        path_layout = QHBoxLayout()
+        self.folder_path_edit = QLineEdit()
+        self.folder_path_edit.setPlaceholderText("请选择包含要处理文件的文件夹...")
+        self.folder_path_edit.setReadOnly(True)
+
+        # 选择文件夹按钮
+        btn_select = QPushButton("📂 选择文件夹")
+        btn_select.setMinimumWidth(130)
+        btn_select.clicked.connect(self.select_folder)
+        btn_select.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+
+        path_layout.addWidget(self.folder_path_edit)
+        path_layout.addWidget(btn_select)
+        folder_layout.addLayout(path_layout)
+
+        # 包含子文件夹选项
+        self.check_subfolders = QCheckBox("包含子文件夹")
+        check_font = QFont()
+        check_font.setPointSize(10)
+        self.check_subfolders.setFont(check_font)
+        self.check_subfolders.setChecked(False)
+        self.check_subfolders.setStyleSheet("""
+            QCheckBox {
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 30px;
+                height: 30px;
+            }
+        """)
+        folder_layout.addWidget(self.check_subfolders)
+
+        layout.addWidget(folder_group)
+
+        # 提取规则设置
+        rule_group = QGroupBox("提取规则")
+        rule_group.setFont(group_font)
+        rule_layout = QVBoxLayout(rule_group)
+
+        # 创建统一的水平布局
+        settings_layout = QHBoxLayout()
+        settings_layout.setSpacing(20)  # 增加间距
+
+        # 分隔符设置
+        separator_layout = QHBoxLayout()
+        separator_label = QLabel("分隔符:")
+        separator_label.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                color: #333;
+                font-weight: bold;
+                background-color: #f0f0f0;
+                padding: 8px 12px;
+                border-radius: 6px;
+                min-width: 80px;
+            }
+        """)
+        self.separator_edit = QLineEdit()
+        # self.separator_edit.setPlaceholderText("_ 或 - 或 .")
+        self.separator_edit.setText("_")
+        self.separator_edit.setStyleSheet("""
+            QLineEdit {
+                padding: 8px 12px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                min-height: 32px;
+                font-size: 24px;
+            }
+        """)
+        separator_layout.addWidget(separator_label)
+        separator_layout.addWidget(self.separator_edit)
+        settings_layout.addLayout(separator_layout)
+
+        # 提取部分选择
+        extract_layout = QHBoxLayout()
+        extract_label = QLabel("提取部分:")
+        extract_label.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                color: #333;
+                font-weight: bold;
+                background-color: #f0f0f0;
+                padding: 8px 12px;
+                border-radius: 6px;
+                min-width: 80px;
+            }
+        """)
+        self.extract_part = QSpinBox()
+        self.extract_part.setMinimum(1)
+        self.extract_part.setMaximum(10)
+        self.extract_part.setValue(1)
+        self.extract_part.setStyleSheet("""
+            QSpinBox {
+                padding: 8px 12px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                min-height: 32px;
+                font-size: 24px;
+            }
+        """)
+        extract_layout.addWidget(extract_label)
+        extract_layout.addWidget(self.extract_part)
+        settings_layout.addLayout(extract_layout)
+
+        # 文件扩展名过滤
+        filter_layout = QHBoxLayout()
+        filter_label = QLabel("文件扩展名:")
+        filter_label.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                color: #333;
+                font-weight: bold;
+                background-color: #f0f0f0;
+                padding: 8px 12px;
+                border-radius: 6px;
+                min-width: 80px;
+            }
+        """)
+        self.extension_edit = QLineEdit()
+        self.extension_edit.setPlaceholderText(".pdf或.docx 不填默认所有文件类型")
+        self.extension_edit.setStyleSheet("""
+            QLineEdit {
+                padding: 8px 12px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                min-height: 32px;
+                font-size: 24px;
+            }
+        """)
+        filter_layout.addWidget(filter_label)
+        filter_layout.addWidget(self.extension_edit)
+        settings_layout.addLayout(filter_layout)
+
+        # 添加弹性空间，使控件靠左对齐
+        settings_layout.addStretch()
+
+        rule_layout.addLayout(settings_layout)
+        layout.addWidget(rule_group)
+
+        # 按钮区域
+        button_layout = QHBoxLayout()
+
+        self.btn_preview = QPushButton("👁️ 预览结果")
+        self.btn_preview.clicked.connect(self.preview_extraction)
+        self.btn_preview.setEnabled(False)
+        self.btn_preview.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+
+        self.btn_export = QPushButton("📊 导出到Excel")
+        self.btn_export.clicked.connect(self.export_to_excel)
+        self.btn_export.setEnabled(False)
+        self.btn_export.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+
+        button_layout.addWidget(self.btn_preview)
+        button_layout.addWidget(self.btn_export)
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        # 结果显示区域
+        result_group = QGroupBox("提取结果")
+        result_group.setFont(group_font)
+        result_layout = QVBoxLayout(result_group)
+
+        self.result_table = QTableWidget()
+        self.result_table.setColumnCount(2)
+        self.result_table.setHorizontalHeaderLabels(["文件名", "提取内容"])
+        self.result_table.horizontalHeader().setStretchLastSection(True)
+        self.result_table.setMinimumHeight(300)
+        # 确保表格行为正确
+        self.result_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.result_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        result_layout.addWidget(self.result_table)
+
+        layout.addWidget(result_group)
+
+        # 状态栏
+        self.status_label = QLabel("请选择文件夹")
+        self.status_label.setStyleSheet("color: #666;")
+        layout.addWidget(self.status_label)
+
+    def select_folder(self):
+        """选择文件夹"""
+        folder = QFileDialog.getExistingDirectory(self, "选择文件夹")
+        if folder:
+            self.folder_path = folder
+            self.folder_path_edit.setText(folder)
+            self.btn_preview.setEnabled(True)
+            self.status_label.setText(f"已选择文件夹: {folder}")
+
+    def get_files(self):
+        """获取要处理的文件列表"""
+        files = []
+        separator = self.separator_edit.text()
+        extension = self.extension_edit.text().strip().lower()
+
+        try:
+            if self.check_subfolders.isChecked():
+                # 包含子文件夹
+                for root, dirs, filenames in os.walk(self.folder_path):
+                    for filename in filenames:
+                        # 检查文件扩展名
+                        if not extension or filename.lower().endswith(extension):
+                            files.append(os.path.join(root, filename))
+                            # 限制文件数量
+                            if len(files) >= 1000:
+                                QMessageBox.warning(
+                                    self, "提示", "文件数量过多，仅处理前1000个文件")
+                                return files
+            else:
+                # 不包含子文件夹
+                for filename in os.listdir(self.folder_path):
+                    filepath = os.path.join(self.folder_path, filename)
+                    if os.path.isfile(filepath):
+                        # 检查文件扩展名
+                        if not extension or filename.lower().endswith(extension):
+                            files.append(filepath)
+                            # 限制文件数量
+                            if len(files) >= 1000:
+                                QMessageBox.warning(
+                                    self, "提示", "文件数量过多，仅处理前1000个文件")
+                                return files
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"读取文件列表失败: {str(e)}")
+            return []
+
+        return files
+
+    def preview_extraction(self):
+        """预览提取结果"""
+        try:
+            if not self.folder_path:
+                QMessageBox.warning(self, "提示", "请先选择文件夹！")
+                return
+
+            separator = self.separator_edit.text()
+            if not separator:
+                QMessageBox.warning(self, "提示", "请输入分隔符！")
+                return
+
+            part_index = self.extract_part.value() - 1  # 转换为0-based索引
+
+            # 获取文件列表
+            files = self.get_files()
+            if not files:
+                QMessageBox.warning(self, "提示", "没有找到符合条件的文件！")
+                return
+
+            # 清空之前的结果并确保列数正确
+            self.result_table.clearContents()
+            self.result_table.setRowCount(0)
+            self.result_table.setColumnCount(2)
+            self.extracted_data = []
+
+            # 处理每个文件
+            for filepath in files:
+                filename = os.path.basename(filepath)
+                # 根据分隔符分割文件名
+                parts = filename.split(separator)
+
+                # 提取指定部分
+                if part_index < len(parts):
+                    extracted = parts[part_index]
+                else:
+                    extracted = ""
+
+                # 添加到表格
+                row = self.result_table.rowCount()
+                self.result_table.insertRow(row)
+                self.result_table.setItem(row, 0, QTableWidgetItem(filename))
+                self.result_table.setItem(row, 1, QTableWidgetItem(extracted))
+
+                # 保存数据以便导出
+                self.extracted_data.append((filename, extracted))
+
+            # 更新状态
+            self.status_label.setText(f"已处理 {len(files)} 个文件")
+            self.btn_export.setEnabled(True)
+
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"预览失败: {str(e)}")
+            self.status_label.setText("预览失败")
+
+    def export_to_excel(self):
+        """导出结果到Excel"""
+        if not self.extracted_data:
+            QMessageBox.warning(self, "提示", "没有可导出的数据！")
+            return
+
+        # 选择保存位置
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存Excel文件", "提取结果.xlsx", "Excel文件 (*.xlsx)")
+
+        if not file_path:
+            return
+
+        try:
+            # 使用openpyxl创建Excel文件
+            import openpyxl
+            from openpyxl.styles import Font, Alignment, PatternFill
+
+            # 创建工作簿
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "文件名提取结果"
+
+            # 设置表头
+            headers = ["文件名", "提取内容"]
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill(
+                    start_color="4472C4", end_color="4472C4", fill_type="solid")
+                cell.alignment = Alignment(horizontal="center")
+
+            # 填充数据
+            for row, (filename, extracted) in enumerate(self.extracted_data, 2):
+                ws.cell(row=row, column=1, value=filename)
+                ws.cell(row=row, column=2, value=extracted)
+
+            # 调整列宽
+            ws.column_dimensions['A'].width = 50
+            ws.column_dimensions['B'].width = 30
+
+            # 保存文件
+            wb.save(file_path)
+
+            # 更新状态
+            self.status_label.setText(f"结果已导出到: {file_path}")
+
+            # 询问是否打开文件
+            reply = QMessageBox.question(
+                self, "完成", "导出成功！是否打开文件？",
+                QMessageBox.Yes | QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                if os.name == 'nt':  # Windows系统
+                    os.startfile(file_path)
+                elif os.name == 'posix':  # Linux/Mac系统
+                    subprocess.Popen(['xdg-open', file_path])
+
+        except ImportError:
+            QMessageBox.critical(
+                self, "错误", "缺少openpyxl库，请先安装: pip install openpyxl")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"导出Excel失败: {str(e)}")
 
 
 class OCRPage(QWidget):
