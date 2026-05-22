@@ -7,7 +7,7 @@ from PyQt5.QtGui import QFont
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import subprocess
-from PyQt5.QtGui import QBrush
+from PyQt5.QtGui import QBrush, QIcon
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QStackedWidget, QListWidget,
                              QListWidgetItem, QLabel, QFrame, QMessageBox, QFileDialog,
@@ -21,6 +21,9 @@ import pdfplumber
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 import io
+import pytesseract
+import openpyxl
+from PIL import Image
 
 
 # 获取全局应用对象，用于后续强制刷新样式
@@ -170,7 +173,7 @@ class PupAideMainWindow(QMainWindow):
             "📄 PDF 批量处理",
             "📝 Word/Excel 批量替换",
             "🔍 OCR 文字识别工具",
-            "✂️ 文件名称提取器"  # 新增功能
+            "✂️ 文件名称提取器"  # 0422新增功能
         ]
         for func in functions:
             item = QListWidgetItem(func)
@@ -229,6 +232,14 @@ class PupAideMainWindow(QMainWindow):
 
         # 添加到主布局
         main_layout.addWidget(self.splitter)
+
+        # 设置窗口图标
+        if getattr(sys, 'frozen', False):
+            icon_path = os.path.join(sys._MEIPASS, 'dog.ico')
+        else:
+            icon_path = os.path.join(os.path.dirname(
+                os.path.abspath(__file__)), 'dog.ico')
+        self.setWindowIcon(QIcon(icon_path))
 
 
 # ========== 功能1：重复文件查找器 ==========
@@ -1644,18 +1655,18 @@ class PDFBatchPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # 标题
-        title = QLabel("📄 PDF 批量处理工具")
+        title = QLabel("📄 PDF 批量处理工具（该功能暂未测试）")
         title_font = QFont()
         title_font.setPointSize(16)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
 
-        # 添加注释文本
-        subtitle = QLabel("该功能暂未测试")
-        subtitle.setFont(QFont("Arial", 12))  # 使用较小的字体
-        subtitle.setStyleSheet("color: #888888;")  # 设置为灰色
-        layout.addWidget(subtitle)
+        # # 添加注释文本
+        # subtitle = QLabel("该功能暂未测试")
+        # subtitle.setFont(QFont("Arial", 12))  # 使用较小的字体
+        # subtitle.setStyleSheet("color: #888888;")  # 设置为灰色
+        # layout.addWidget(subtitle)
 
         # 统一的 QGroupBox 字体
         group_font = QFont()
@@ -3121,27 +3132,550 @@ class FileNameCut(QWidget):
             QMessageBox.critical(self, "错误", f"导出Excel失败: {str(e)}")
 
 
+# ========== 功能7：OCR 文字识别 ==========
 class OCRPage(QWidget):
     def __init__(self):
         super().__init__()
+        self.image_files = []
+        self.pdf_files = []
+        self.setup_ui()
+
+    def setup_ui(self):
+        """初始化UI界面"""
         layout = QVBoxLayout(self)
+        layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
-        label = QLabel("🔍 OCR 文字识别工具")
+
+        # 标题
+        title = QLabel("🔍 OCR 文字识别工具（该功能暂未测试）")
         title_font = QFont()
         title_font.setPointSize(16)
         title_font.setBold(True)
-        label.setFont(title_font)
-        label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet("color: #666;")
-        layout.addWidget(label)
+        title.setFont(title_font)
+        layout.addWidget(title)
 
-        info = QLabel("此功能正在开发中，敬请期待...")
-        info_font = QFont()
-        info_font.setPointSize(14)
-        info.setFont(info_font)
-        info.setAlignment(Qt.AlignCenter)
-        info.setStyleSheet("color: #999; margin-top: 20px;")
-        layout.addWidget(info)
+        # 文件选择区域
+        file_group = QGroupBox("选择文件")
+        group_font = QFont()
+        group_font.setPointSize(13)
+        file_group.setFont(group_font)
+        file_layout = QVBoxLayout(file_group)
+
+        # 文件类型选择
+        type_layout = QHBoxLayout()
+        self.file_type = QComboBox()
+        self.file_type.addItems(["图片文件", "PDF文件"])
+        type_layout.addWidget(QLabel("文件类型:"))
+        type_layout.addWidget(self.file_type)
+        file_layout.addLayout(type_layout)
+
+        # 文件列表
+        self.file_list = QListWidget()
+        self.file_list.setDragDropMode(QAbstractItemView.InternalMove)
+        file_layout.addWidget(self.file_list)
+
+        # 文件操作按钮
+        file_btn_layout = QHBoxLayout()
+
+        self.btn_add = QPushButton("➕ 添加文件")
+        self.btn_add.clicked.connect(self.add_files)
+        self.btn_add.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+
+        self.btn_remove = QPushButton("➖ 移除选中")
+        self.btn_remove.clicked.connect(self.remove_files)
+        self.btn_remove.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B6B;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF5252;
+            }
+        """)
+
+        self.btn_clear = QPushButton("🗑️ 清空列表")
+        self.btn_clear.clicked.connect(self.clear_files)
+        self.btn_clear.setStyleSheet("""
+            QPushButton {
+                background-color: #999;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #777;
+            }
+        """)
+
+        file_btn_layout.addWidget(self.btn_add)
+        file_btn_layout.addWidget(self.btn_remove)
+        file_btn_layout.addWidget(self.btn_clear)
+        file_layout.addLayout(file_btn_layout)
+
+        layout.addWidget(file_group)
+
+        # OCR选项
+        option_group = QGroupBox("识别选项")
+        option_group.setFont(group_font)
+        option_layout = QVBoxLayout(option_group)
+
+        # 语言选择
+        lang_layout = QHBoxLayout()
+        lang_label = QLabel("识别语言:")
+        lang_label.setStyleSheet("""
+            QLabel {
+                color: #333;
+                font-weight: bold;
+                background-color: #f0f0f0;
+                padding: 8px 12px;
+                border-radius: 6px;
+                min-width: 80px;
+            }
+        """)
+        lang_layout.addWidget(lang_label)
+
+        self.language = QComboBox()
+        self.language.addItems(["中文(简体)", "中文(繁体)", "英语", "日语", "韩语", "自动检测"])
+        self.language.setStyleSheet("""
+            QComboBox {
+                padding: 8px 12px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                min-height: 32px;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 30px;
+            }
+            QComboBox::down-arrow {
+                image: url(none);
+                border: none;
+            }
+        """)
+        lang_layout.addWidget(self.language)
+        option_layout.addLayout(lang_layout)
+
+        # PDF页面范围
+        self.pdf_range_layout = QHBoxLayout()
+        self.pdf_range_layout.addWidget(QLabel("PDF页面范围:"))
+        self.pdf_range = QLineEdit()
+        self.pdf_range.setPlaceholderText("例如: 1,3,5-10,15")
+        self.pdf_range_layout.addWidget(self.pdf_range)
+        option_layout.addLayout(self.pdf_range_layout)
+
+        # 隐藏PDF页面范围（默认）
+        self.pdf_range_widget = QWidget()
+        self.pdf_range_widget.setLayout(self.pdf_range_layout)
+        self.pdf_range_widget.setVisible(False)
+        option_layout.addWidget(self.pdf_range_widget)
+
+        # 输出格式选择
+        output_format_layout = QHBoxLayout()
+        output_format_layout.addWidget(QLabel("输出格式:"))
+        self.output_format = QComboBox()
+        self.output_format.addItems(["文本文件(.txt)", "Excel文件(.xlsx)"])
+        output_format_layout.addWidget(self.output_format)
+        option_layout.addLayout(output_format_layout)
+
+        layout.addWidget(option_group)
+
+        # 输出文件设置
+        output_group = QGroupBox("输出文件")
+        output_group.setFont(group_font)
+        output_layout = QHBoxLayout()
+
+        output_layout.addWidget(QLabel("输出文件名:"))
+        self.output_file = QLineEdit()
+        self.output_file.setPlaceholderText("识别结果保存为.txt或.xlsx文件")
+        output_layout.addWidget(self.output_file)
+
+        self.btn_browse = QPushButton("📂 选择保存位置")
+        self.btn_browse.clicked.connect(self.browse_output_file)
+        self.btn_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+        output_layout.addWidget(self.btn_browse)
+
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+
+        # 开始识别按钮
+        self.btn_recognize = QPushButton("🔍 开始识别")
+        self.btn_recognize.clicked.connect(self.recognize_text)
+        self.btn_recognize.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 10px 15px;
+                border-radius: 6px;
+                min-height: 35px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        layout.addWidget(self.btn_recognize)
+
+        # 进度条
+        self.progress = QProgressBar()
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+
+        # 结果显示区域
+        result_group = QGroupBox("识别结果")
+        result_group.setFont(group_font)
+        result_layout = QVBoxLayout(result_group)
+
+        self.result_text = QTextEdit()
+        text_font = QFont()
+        text_font.setPointSize(12)
+        self.result_text.setFont(text_font)
+        self.result_text.setReadOnly(True)
+        self.result_text.setMinimumHeight(200)
+        result_layout.addWidget(self.result_text)
+
+        layout.addWidget(result_group)
+
+        # 连接信号
+        self.file_type.currentIndexChanged.connect(self.on_file_type_changed)
+
+    def on_file_type_changed(self, index):
+        """文件类型改变时更新UI"""
+        if index == 0:  # 图片文件
+            self.pdf_range_widget.setVisible(False)
+        else:  # PDF文件
+            self.pdf_range_widget.setVisible(True)
+
+    def add_files(self):
+        """添加文件到列表"""
+        if self.file_type.currentIndex() == 0:  # 图片文件
+            files, _ = QFileDialog.getOpenFileNames(
+                self, "选择图片文件", "",
+                "图片文件 (*.png *.jpg *.jpeg *.bmp *.tiff *.gif)")
+            target_list = self.image_files
+        else:  # PDF文件
+            files, _ = QFileDialog.getOpenFileNames(
+                self, "选择PDF文件", "", "PDF文件 (*.pdf)")
+            target_list = self.pdf_files
+
+        if files:
+            for file in files:
+                if file not in target_list:
+                    target_list.append(file)
+                    self.file_list.addItem(os.path.basename(file))
+
+    def remove_files(self):
+        """从列表中移除选中的文件"""
+        selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "提示", "请先选择要移除的文件！")
+            return
+
+        for item in selected_items:
+            row = self.file_list.row(item)
+            self.file_list.takeItem(row)
+
+            # 从对应的列表中移除
+            if self.file_type.currentIndex() == 0:  # 图片文件
+                if row < len(self.image_files):
+                    self.image_files.pop(row)
+            else:  # PDF文件
+                if row < len(self.pdf_files):
+                    self.pdf_files.pop(row)
+
+    def clear_files(self):
+        """清空文件列表"""
+        if not self.image_files and not self.pdf_files:
+            return
+
+        reply = QMessageBox.question(
+            self, "确认清空", "确定要清空所有文件吗？",
+            QMessageBox.Yes | QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            self.image_files.clear()
+            self.pdf_files.clear()
+            self.file_list.clear()
+
+    def browse_output_file(self):
+        """浏览并选择输出文件位置"""
+        if self.output_format.currentIndex() == 0:  # 文本文件
+            default_name = "识别结果.txt"
+            file_filter = "文本文件 (*.txt)"
+        else:  # Excel文件
+            default_name = "识别结果.xlsx"
+            file_filter = "Excel文件 (*.xlsx)"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "选择保存位置", default_name, file_filter)
+
+        if file_path:
+            self.output_file.setText(file_path)
+
+    def get_language_code(self):
+        """获取语言代码"""
+        lang_map = {
+            "中文(简体)": "chi_sim",
+            "中文(繁体)": "chi_tra",
+            "英语": "eng",
+            "日语": "jpn",
+            "韩语": "kor",
+            "自动检测": None
+        }
+        return lang_map.get(self.language.currentText())
+
+    def recognize_text(self):
+        """识别文字"""
+        QMessageBox.warning(self, "提示", "OCR功能暂未开放，敬请期待！")
+        return
+
+        # 检查文件列表
+        if self.file_type.currentIndex() == 0:  # 图片文件
+            files = self.image_files
+        else:  # PDF文件
+            files = self.pdf_files
+
+        if not files:
+            QMessageBox.warning(self, "提示", "请先添加文件！")
+            return
+
+        # 检查输出文件
+        output_path = self.output_file.text()
+        if not output_path:
+            QMessageBox.warning(self, "提示", "请指定输出文件名！")
+            return
+
+        # 清空结果
+        self.result_text.clear()
+        self.result_text.append("🔍 开始识别文字...\n")
+        self.result_text.append("=" * 60 + "\n\n")
+
+        # 显示进度条
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+
+        try:
+            # 获取语言代码
+            lang = self.get_language_code()
+
+            # 创建OCR配置
+            config = '--oem 3 --psm 6'
+            if lang:
+                config += f' -l {lang}'
+
+            # 识别结果
+            all_text = []
+
+            # 处理图片文件
+            if self.file_type.currentIndex() == 0:  # 图片文件
+                for i, image_path in enumerate(files):
+                    self.result_text.append(
+                        f"正在处理: {os.path.basename(image_path)}\n")
+
+                    # 读取图片
+                    image = Image.open(image_path)
+
+                    # OCR识别
+                    text = pytesseract.image_to_string(image, config=config)
+                    all_text.append(
+                        f"--- {os.path.basename(image_path)} ---\n\n{text}\n\n")
+
+                    # 更新进度
+                    progress = int((i + 1) / len(files) * 90)
+                    self.progress.setValue(progress)
+                    QApplication.processEvents()
+
+            # 处理PDF文件
+            else:
+                # 解析页面范围
+                page_range = self.pdf_range.text()
+                if page_range:
+                    pages_to_extract = self.parse_page_range(page_range)
+                else:
+                    pages_to_extract = None
+
+                for i, pdf_path in enumerate(files):
+                    self.result_text.append(
+                        f"正在处理: {os.path.basename(pdf_path)}\n")
+
+                    # 打开PDF
+                    pdf = pdfplumber.open(pdf_path)
+                    total_pages = len(pdf.pages)
+
+                    # 确定要处理的页面
+                    if pages_to_extract:
+                        pages = [p for p in pages_to_extract if 1 <=
+                                 p <= total_pages]
+                    else:
+                        pages = range(1, total_pages + 1)
+
+                    # 处理每一页
+                    for page_num in pages:
+                        page = pdf.pages[page_num - 1]
+
+                        # 转换为图片
+                        image = page.to_image()
+
+                        # OCR识别
+                        text = pytesseract.image_to_string(
+                            image, config=config)
+                        all_text.append(
+                            f"--- {os.path.basename(pdf_path)} - 第 {page_num} 页 ---\n\n{text}\n\n")
+
+                        # 更新进度
+                        total_items = len(files) * len(pages)
+                        current_item = i * len(pages) + \
+                            pages.index(page_num) + 1
+                        progress = int(current_item / total_items * 90)
+                        self.progress.setValue(progress)
+                        QApplication.processEvents()
+
+                    # 关闭PDF
+                    pdf.close()
+
+            # 保存结果
+            self.progress.setValue(95)
+
+            if self.output_format.currentIndex() == 0:  # 文本文件
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(''.join(all_text))
+            else:  # Excel文件
+                self.save_to_excel(all_text, output_path)
+
+            self.progress.setValue(100)
+            self.result_text.append(f"\n✅ 识别完成！结果已保存到: {output_path}\n")
+
+            # 询问是否打开文件
+            reply = QMessageBox.question(
+                self, "完成", "文字识别完成！是否打开文件？",
+                QMessageBox.Yes | QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                if os.name == 'nt':  # Windows系统
+                    os.startfile(output_path)
+                elif os.name == 'posix':  # Linux/Mac系统
+                    subprocess.Popen(['xdg-open', output_path])
+
+        except ImportError:
+            self.result_text.append("\n❌ 缺少必要的库！请安装以下库:\n")
+            self.result_text.append("- pip install pytesseract\n")
+            self.result_text.append("- pip install Pillow\n")
+            self.result_text.append("- pip install pdfplumber\n")
+            self.result_text.append("\n同时请确保已安装Tesseract-OCR引擎并配置环境变量。\n")
+            QMessageBox.critical(self, "错误", "缺少必要的库！请查看结果区域了解详情。")
+        except Exception as e:
+            self.result_text.append(f"\n❌ 识别失败: {str(e)}\n")
+            QMessageBox.critical(self, "错误", f"识别文字失败: {str(e)}")
+
+        self.progress.setVisible(False)
+
+    def save_to_excel(self, text_data, output_path):
+        """保存识别结果到Excel"""
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, Alignment, PatternFill
+
+            # 创建工作簿
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "OCR识别结果"
+
+            # 设置表头
+            headers = ["文件名", "识别内容"]
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill(
+                    start_color="4472C4", end_color="4472C4", fill_type="solid")
+                cell.alignment = Alignment(horizontal="center")
+
+            # 填充数据
+            row = 2
+            for text in text_data:
+                # 提取文件名
+                lines = text.split('\n')
+                filename = lines[0].replace('--- ', '').replace(' ---', '')
+
+                # 提取内容
+                content = '\n'.join(lines[2:])
+
+                # 添加到Excel
+                ws.cell(row=row, column=1, value=filename)
+                ws.cell(row=row, column=2, value=content)
+                row += 1
+
+            # 调整列宽
+            ws.column_dimensions['A'].width = 30
+            ws.column_dimensions['B'].width = 80
+
+            # 保存文件
+            wb.save(output_path)
+
+        except ImportError:
+            raise ImportError("缺少openpyxl库，请先安装: pip install openpyxl")
+        except Exception as e:
+            raise Exception(f"保存Excel失败: {str(e)}")
+
+    def parse_page_range(self, page_range):
+        """解析页面范围字符串，返回页面列表"""
+        pages = []
+        parts = page_range.split(',')
+
+        for part in parts:
+            part = part.strip()
+            if '-' in part:
+                # 处理范围，如 "5-10"
+                start, end = part.split('-')
+                try:
+                    start = int(start)
+                    end = int(end)
+                    pages.extend(range(start, end + 1))
+                except ValueError:
+                    continue
+            else:
+                # 处理单个页面，如 "5"
+                try:
+                    pages.append(int(part))
+                except ValueError:
+                    continue
+
+        # 去重并排序
+        pages = sorted(list(set(pages)))
+        return pages
 
 
 def main():
