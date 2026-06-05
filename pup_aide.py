@@ -4,6 +4,8 @@ import hashlib
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QFont
+import matplotlib
+matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import subprocess
@@ -28,8 +30,6 @@ from PIL import Image
 
 # 获取全局应用对象，用于后续强制刷新样式
 qApp = None
-
-# TODO-1 添加全局查找文件的功能，并添加到菜单栏中
 
 
 class PupAideMainWindow(QMainWindow):
@@ -1554,7 +1554,11 @@ class ScanThread(QThread):
 
                         # 检查是否为大文件
                         if self.show_large_files and file_size > 100 * 1024 * 1024:
-                            large_files.append((item_path, file_size))
+                            # large_files.append((item_path, file_size))
+                            is_system = self._is_system_file(
+                                item_path, system_extensions, system_folders)
+                            large_files.append(
+                                (item_path, file_size, is_system))
 
                         scanned_files += 1
                         if scanned_files % 10 == 0:
@@ -3628,10 +3632,14 @@ class OCRPage(QWidget):
             for text in text_data:
                 # 提取文件名
                 lines = text.split('\n')
-                filename = lines[0].replace('--- ', '').replace(' ---', '')
-
-                # 提取内容
-                content = '\n'.join(lines[2:])
+                if len(lines) >= 1:
+                    filename = lines[0].replace('--- ', '').replace(' ---', '')
+                else:
+                    filename = "未知文件"
+                if len(lines) >= 3:
+                    content = '\n'.join(lines[2:])
+                else:
+                    content = '\n'.join(lines[1:]) if len(lines) >= 2 else ""
 
                 # 添加到Excel
                 ws.cell(row=row, column=1, value=filename)
