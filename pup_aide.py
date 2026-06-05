@@ -1,3 +1,25 @@
+import re
+from datetime import datetime
+from PIL import Image
+import openpyxl
+import pytesseract
+import io
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+import pdfplumber
+import PyPDF2
+from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QStackedWidget, QListWidget,
+                             QListWidgetItem, QLabel, QFrame, QMessageBox, QFileDialog,
+                             QTextEdit, QProgressBar, QGroupBox, QCheckBox,
+                             QLineEdit, QSplitter, QTabWidget, QComboBox, QFormLayout,
+                             QSlider, QColorDialog, QAbstractItemView, QSpinBox,
+                             QTreeWidget, QTreeWidgetItem, QHeaderView, QTableWidget, QTableWidgetItem)
+from PyQt5.QtGui import QBrush, QIcon
+import subprocess
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+import matplotlib.pyplot as plt
 import sys
 import os
 import hashlib
@@ -6,26 +28,11 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 import matplotlib
 matplotlib.use('Qt5Agg')
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-import subprocess
-from PyQt5.QtGui import QBrush, QIcon
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QPushButton, QStackedWidget, QListWidget,
-                             QListWidgetItem, QLabel, QFrame, QMessageBox, QFileDialog,
-                             QTextEdit, QProgressBar, QGroupBox, QCheckBox,
-                             QLineEdit, QSplitter, QTabWidget, QComboBox, QFormLayout,
-                             QSlider, QColorDialog, QAbstractItemView, QSpinBox,
-                             QTreeWidget, QTreeWidgetItem, QHeaderView, QTableWidget, QTableWidgetItem)
-from PyQt5.QtGui import QColor
-import PyPDF2
-import pdfplumber
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-import io
-import pytesseract
-import openpyxl
-from PIL import Image
+try:
+    from docx import Document as DocxDocument
+    HAS_PYTHON_DOCX = True
+except ImportError:
+    HAS_PYTHON_DOCX = False
 
 
 # 获取全局应用对象，用于后续强制刷新样式
@@ -173,7 +180,8 @@ class PupAideMainWindow(QMainWindow):
             "📄 PDF 批量处理",
             "📝 Word/Excel 批量替换",
             "🔍 OCR 文字识别工具",
-            "✂️ 文件名称提取器"  # 0422新增功能
+            "✂️ 文件名称提取器",  # 0422新增功能
+            "📑 文档拆分工具"
         ]
         for func in functions:
             item = QListWidgetItem(func)
@@ -210,6 +218,7 @@ class PupAideMainWindow(QMainWindow):
         self.page_office = OfficeBatchPage()
         self.page_ocr = OCRPage()
         self.page_namecut = FileNameCut()  # 新增功能页面实例
+        self.page_docsplit = DocSplitPage()  # 文档拆分页面实例
 
         self.right_panel.addWidget(self.page_duplicate)
         self.right_panel.addWidget(self.page_sync)
@@ -218,6 +227,7 @@ class PupAideMainWindow(QMainWindow):
         self.right_panel.addWidget(self.page_office)
         self.right_panel.addWidget(self.page_ocr)
         self.right_panel.addWidget(self.page_namecut)  # 新增功能页面添加到右侧面板
+        self.right_panel.addWidget(self.page_docsplit)  # 文档拆分页面添加到右侧面板
 
         # 添加导航栏点击事件
         self.nav_list.currentRowChanged.connect(
@@ -3684,6 +3694,1042 @@ class OCRPage(QWidget):
         # 去重并排序
         pages = sorted(list(set(pages)))
         return pages
+
+
+# ========== 功能8：文档拆分工具 ==========
+class SplitWorker(QThread):
+    """后台拆分工作线程"""
+    progress_updated = pyqtSignal(int, str)
+    split_completed = pyqtSignal(list)
+    split_error = pyqtSignal(str)
+
+    def __init__(self, file_list, rule, params, output_dir, naming_template, output_format):
+        super().__init__()
+        self.file_list = file_list
+        self.rule = rule
+        self.params = params
+        self.output_dir = output_dir
+        self.naming_template = naming_template
+        self.output_format = output_format
+        self._is_running = True
+
+    def run(self):
+        all_output_files = []
+        total_files = len(self.file_list)
+
+        for i, file_path in enumerate(self.file_list):
+            if not self._is_running:
+                break
+
+            self.progress_updated.emit(
+                int(i / total_files * 100),
+                f"正在处理: {os.path.basename(file_path)}"
+            )
+
+            try:
+                ext = os.path.splitext(file_path)[1].lower()
+                if ext == '.pdf':
+                    output_files = self.split_pdf(file_path)
+                elif ext == '.docx':
+                    output_files = self.split_word(file_path)
+                elif ext == '.xlsx':
+                    output_files = self.split_excel(file_path)
+                else:
+                    self.split_error.emit(f"不支持的文件格式: {ext}")
+                    continue
+
+                all_output_files.extend(output_files)
+            except Exception as e:
+                self.split_error.emit(
+                    f"拆分 {os.path.basename(file_path)} 失败: {str(e)}")
+
+        self.progress_updated.emit(100, "拆分完成！")
+        self.split_completed.emit(all_output_files)
+
+    def stop(self):
+        self._is_running = False
+        self.wait()
+
+    # ===== 命名模板 =====
+    def format_name(self, template, source_path, index, page_group=None, title=""):
+        name_without_ext = os.path.splitext(os.path.basename(source_path))[0]
+        now = datetime.now()
+
+        page_range_str = ""
+        if page_group:
+            pages = list(page_group)
+            if pages:
+                page_range_str = f"{pages[0]}-{pages[-1]}"
+
+        result = template
+        result = result.replace("{原名}", name_without_ext)
+        result = result.replace("{序号}", str(index))
+        result = result.replace("{日期}", now.strftime("%Y%m%d"))
+        result = result.replace("{页码范围}", page_range_str)
+        result = result.replace("{标题}", title if title else f"第{index}部分")
+
+        fmt_matches = re.findall(r'\{序号:(\w+)\}', result)
+        for fmt in fmt_matches:
+            formatted = format(index, fmt)
+            result = result.replace(f"{{序号:{fmt}}}", formatted)
+
+        # 处理文件名冲突
+        base = result
+        counter = 1
+        while os.path.exists(os.path.join(self.output_dir, result + '.pdf')) or \
+                os.path.exists(os.path.join(self.output_dir, result + '.docx')) or \
+                os.path.exists(os.path.join(self.output_dir, result + '.xlsx')):
+            result = f"{base}({counter})"
+            counter += 1
+
+        return result
+
+    # ===== 页码范围解析 =====
+    def parse_custom_ranges(self, range_str):
+        """解析自定义页码范围，如 '1-3,4-6,7-10' → [[1,2,3],[4,5,6],[7,8,9,10]]"""
+        groups = []
+        parts = range_str.split(',')
+        for part in parts:
+            part = part.strip()
+            if '-' in part:
+                start, end = part.split('-', 1)
+                try:
+                    groups.append(list(range(int(start), int(end) + 1)))
+                except ValueError:
+                    continue
+            else:
+                try:
+                    groups.append([int(part)])
+                except ValueError:
+                    continue
+        return groups
+
+    # ===== PDF 拆分 =====
+    def split_pdf(self, file_path):
+        reader = PyPDF2.PdfReader(file_path)
+        total_pages = len(reader.pages)
+        groups = []  # 每个元素是 (页码列表, 标题)
+
+        if self.rule == "by_page_count":
+            pages_per_split = self.params.get('pages_per_split', 5)
+            for start in range(0, total_pages, pages_per_split):
+                end = min(start + pages_per_split, total_pages)
+                groups.append((list(range(start + 1, end + 1)), ""))
+
+        elif self.rule == "by_custom_pages":
+            range_groups = self.parse_custom_ranges(
+                self.params.get('page_ranges', ''))
+            for grp in range_groups:
+                valid = [p for p in grp if 1 <= p <= total_pages]
+                if valid:
+                    groups.append((valid, ""))
+
+        elif self.rule == "by_bookmark":
+            bookmark_groups = self._get_pdf_bookmark_ranges(
+                reader, total_pages)
+            if bookmark_groups:
+                groups = bookmark_groups
+            else:
+                # 无书签时回退为按页数拆分
+                pages_per_split = self.params.get('pages_per_split', 5)
+                for start in range(0, total_pages, pages_per_split):
+                    end = min(start + pages_per_split, total_pages)
+                    groups.append((list(range(start + 1, end + 1)), ""))
+
+        elif self.rule == "by_size":
+            target_size = self.params.get('target_size_mb', 5) * 1024 * 1024
+            file_size = os.path.getsize(file_path)
+            avg_page_size = file_size / max(total_pages, 1)
+            pages_per_group = max(1, int(target_size / max(avg_page_size, 1)))
+            for start in range(0, total_pages, pages_per_group):
+                end = min(start + pages_per_group, total_pages)
+                groups.append((list(range(start + 1, end + 1)), ""))
+
+        if not groups:
+            return []
+
+        output_files = []
+        for i, (page_group, title) in enumerate(groups):
+            writer = PyPDF2.PdfWriter()
+            for page_num in page_group:
+                if 1 <= page_num <= total_pages:
+                    writer.add_page(reader.pages[page_num - 1])
+
+            output_name = self.format_name(
+                self.naming_template, file_path, i + 1, page_group, title)
+            output_path = os.path.join(self.output_dir, output_name + '.pdf')
+            with open(output_path, 'wb') as f:
+                writer.write(f)
+            output_files.append(output_path)
+
+            progress = int((i + 1) / len(groups) * 100)
+            self.progress_updated.emit(progress, f"已拆分: {output_name}.pdf")
+
+        return output_files
+
+    def _get_pdf_bookmark_ranges(self, reader, total_pages):
+        """从PDF书签中提取页码范围"""
+        outlines = reader.outline
+        if not outlines:
+            return []
+
+        bookmark_pages = []
+
+        def walk_outlines(items):
+            for item in items:
+                if isinstance(item, list):
+                    walk_outlines(item)
+                else:
+                    try:
+                        page_num = reader.get_destination_page_number(item) + 1
+                        bookmark_pages.append(
+                            (page_num, item.title if hasattr(item, 'title') else ""))
+                    except Exception:
+                        pass
+
+        walk_outlines(outlines)
+        if not bookmark_pages:
+            return []
+
+        bookmark_pages.sort(key=lambda x: x[0])
+
+        groups = []
+        for i, (start_page, title) in enumerate(bookmark_pages):
+            if i + 1 < len(bookmark_pages):
+                end_page = bookmark_pages[i + 1][0] - 1
+            else:
+                end_page = total_pages
+            groups.append((list(range(start_page, end_page + 1)), title))
+
+        return groups
+
+    # ===== Word 拆分 =====
+    def split_word(self, file_path):
+        if not HAS_PYTHON_DOCX:
+            self.split_error.emit(
+                "缺少 python-docx 库，请先安装: pip install python-docx")
+            return []
+
+        doc = DocxDocument(file_path)
+        groups = []  # 每个元素是 (段落索引列表, 标题)
+
+        if self.rule == "by_page_count":
+            # Word无原生页概念，按段落均分近似
+            pages_per_split = self.params.get('pages_per_split', 5)
+            total_paras = len(doc.paragraphs)
+            # 假设每页约15个段落（粗略估算）
+            paras_per_split = pages_per_split * 15
+            for start in range(0, total_paras, paras_per_split):
+                end = min(start + paras_per_split, total_paras)
+                groups.append((list(range(start, end)), ""))
+
+        elif self.rule == "by_custom_pages":
+            # Word按页码拆分不精确，按段落比例近似
+            range_groups = self.parse_custom_ranges(
+                self.params.get('page_ranges', ''))
+            total_paras = len(doc.paragraphs)
+            # 估算总页数
+            est_total_pages = max(1, total_paras // 15)
+            for grp in range_groups:
+                valid = [p for p in grp if 1 <= p <= est_total_pages]
+                if valid:
+                    start_para = (valid[0] - 1) * 15
+                    end_para = min(valid[-1] * 15, total_paras)
+                    groups.append((list(range(start_para, end_para)), ""))
+
+        elif self.rule == "by_heading":
+            heading_groups = self._get_word_heading_ranges(doc)
+            if heading_groups:
+                groups = heading_groups
+            else:
+                # 无标题时回退为按段落均分
+                total_paras = len(doc.paragraphs)
+                paras_per_split = 75
+                for start in range(0, total_paras, paras_per_split):
+                    end = min(start + paras_per_split, total_paras)
+                    groups.append((list(range(start, end)), ""))
+
+        if not groups:
+            return []
+
+        output_files = []
+        for i, (para_indices, title) in enumerate(groups):
+            new_doc = DocxDocument()
+
+            # 复制源文档的页面设置
+            if doc.sections:
+                source_section = doc.sections[0]
+                new_section = new_doc.sections[0]
+                try:
+                    new_section.page_width = source_section.page_width
+                    new_section.page_height = source_section.page_height
+                    new_section.left_margin = source_section.left_margin
+                    new_section.right_margin = source_section.right_margin
+                    new_section.top_margin = source_section.top_margin
+                    new_section.bottom_margin = source_section.bottom_margin
+                except Exception:
+                    pass
+
+            # 复制段落内容
+            for idx in para_indices:
+                if idx < len(doc.paragraphs):
+                    source_para = doc.paragraphs[idx]
+                    new_para = new_doc.add_paragraph()
+                    try:
+                        if source_para.style.name in [s.name for s in new_doc.styles]:
+                            new_para.style = new_doc.styles[source_para.style.name]
+                    except Exception:
+                        pass
+                    for run in source_para.runs:
+                        new_run = new_para.add_run(run.text)
+                        new_run.bold = run.bold
+                        new_run.italic = run.italic
+                        new_run.underline = run.underline
+                        try:
+                            if run.font.size:
+                                new_run.font.size = run.font.size
+                            if run.font.color and run.font.color.rgb:
+                                new_run.font.color.rgb = run.font.color.rgb
+                            if run.font.name:
+                                new_run.font.name = run.font.name
+                        except Exception:
+                            pass
+
+            # 估算页码范围
+            page_group = None
+            if para_indices:
+                start_page = para_indices[0] // 15 + 1
+                end_page = para_indices[-1] // 15 + 1
+                page_group = range(start_page, end_page + 1)
+
+            output_name = self.format_name(
+                self.naming_template, file_path, i + 1, page_group, title)
+            output_path = os.path.join(self.output_dir, output_name + '.docx')
+            new_doc.save(output_path)
+            output_files.append(output_path)
+
+            progress = int((i + 1) / len(groups) * 100)
+            self.progress_updated.emit(progress, f"已拆分: {output_name}.docx")
+
+        return output_files
+
+    def _get_word_heading_ranges(self, doc):
+        """按Word标题样式拆分"""
+        groups = []
+        current_indices = []
+        current_title = ""
+
+        for idx, para in enumerate(doc.paragraphs):
+            if para.style.name.startswith('Heading'):
+                if current_indices:
+                    groups.append((current_indices, current_title))
+                current_title = para.text.strip() or f"章节{len(groups) + 1}"
+                current_indices = [idx]
+            else:
+                current_indices.append(idx)
+
+        if current_indices:
+            groups.append((current_indices, current_title))
+        return groups
+
+    # ===== Excel 拆分 =====
+    def split_excel(self, file_path):
+        wb = openpyxl.load_workbook(file_path)
+        output_files = []
+
+        if self.rule == "by_row_count":
+            rows_per_split = self.params.get('rows_per_split', 100)
+            sheets_per_split = self.params.get('sheets_per_split', 1)
+
+            sheet_names = wb.sheetnames
+            for sheet_group_start in range(0, len(sheet_names), sheets_per_split):
+                sheet_group = sheet_names[sheet_group_start:
+                                          sheet_group_start + sheets_per_split]
+
+                for sheet_name in sheet_group:
+                    ws = wb[sheet_name]
+                    all_rows = list(ws.iter_rows(values_only=True))
+                    if not all_rows:
+                        continue
+
+                    header = all_rows[0]
+                    data_rows = all_rows[1:]
+
+                    for chunk_start in range(0, len(data_rows), rows_per_split):
+                        chunk = data_rows[chunk_start:chunk_start +
+                                          rows_per_split]
+                        new_wb = openpyxl.Workbook()
+                        new_ws = new_wb.active
+                        new_ws.title = sheet_name[:31]  # Excel sheet名最长31字符
+                        new_ws.append(header)
+                        for row in chunk:
+                            new_ws.append(row)
+                        # 复制列宽
+                        for col_letter in ws.column_dimensions:
+                            if col_letter in new_ws.column_dimensions:
+                                new_ws.column_dimensions[col_letter].width = ws.column_dimensions[col_letter].width
+
+                        seq = len(output_files) + 1
+                        output_name = self.format_name(
+                            self.naming_template, file_path, seq)
+                        output_path = os.path.join(
+                            self.output_dir, output_name + '.xlsx')
+                        new_wb.save(output_path)
+                        output_files.append(output_path)
+
+                        progress = int(len(
+                            output_files) / max(1, (len(data_rows) // rows_per_split + 1) * len(sheet_group)) * 100)
+                        self.progress_updated.emit(
+                            progress, f"已拆分: {output_name}.xlsx")
+
+        elif self.rule == "by_sheet":
+            sheets_per_split = self.params.get('sheets_per_split', 1)
+            sheet_names = wb.sheetnames
+
+            for group_start in range(0, len(sheet_names), sheets_per_split):
+                group_sheets = sheet_names[group_start:group_start +
+                                           sheets_per_split]
+
+                new_wb = openpyxl.Workbook()
+                first_sheet = True
+
+                for sheet_name in group_sheets:
+                    ws = wb[sheet_name]
+                    if first_sheet:
+                        new_ws = new_wb.active
+                        new_ws.title = sheet_name[:31]
+                        first_sheet = False
+                    else:
+                        new_ws = new_wb.create_sheet(title=sheet_name[:31])
+
+                    for row in ws.iter_rows(values_only=True):
+                        new_ws.append(row)
+                    # 复制列宽
+                    for col_letter in ws.column_dimensions:
+                        new_ws.column_dimensions[col_letter].width = ws.column_dimensions[col_letter].width
+
+                seq = len(output_files) + 1
+                output_name = self.format_name(
+                    self.naming_template, file_path, seq)
+                output_path = os.path.join(
+                    self.output_dir, output_name + '.xlsx')
+                new_wb.save(output_path)
+                output_files.append(output_path)
+
+                progress = int(
+                    len(output_files) / max(1, (len(sheet_names) // sheets_per_split + 1)) * 100)
+                self.progress_updated.emit(
+                    progress, f"已拆分: {output_name}.xlsx")
+
+        return output_files
+
+
+class DocSplitPage(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.file_list_data = []
+        self.split_worker = None
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # 标题
+        title = QLabel("📑 文档拆分工具")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        layout.addWidget(title)
+
+        group_font = QFont()
+        group_font.setPointSize(13)
+
+        # ===== 文件选择区域 =====
+        file_group = QGroupBox("选择文件")
+        file_group.setFont(group_font)
+        file_layout = QVBoxLayout(file_group)
+
+        # 文件路径选择行
+        path_layout = QHBoxLayout()
+        self.file_path_edit = QLineEdit()
+        self.file_path_edit.setPlaceholderText(
+            "支持 PDF、Word(.docx)、Excel(.xlsx) 文件")
+        self.file_path_edit.setReadOnly(True)
+
+        btn_add = QPushButton("📂 选择文件")
+        btn_add.setMinimumWidth(110)
+        btn_add.clicked.connect(self.add_files)
+
+        btn_add_batch = QPushButton("➕ 批量添加")
+        btn_add_batch.setMinimumWidth(110)
+        btn_add_batch.clicked.connect(self.add_files_batch)
+
+        path_layout.addWidget(self.file_path_edit)
+        path_layout.addWidget(btn_add)
+        path_layout.addWidget(btn_add_batch)
+        file_layout.addLayout(path_layout)
+
+        # 文件列表
+        self.file_list_widget = QListWidget()
+        self.file_list_widget.setDragDropMode(QAbstractItemView.InternalMove)
+        self.file_list_widget.setMinimumHeight(80)
+        file_layout.addWidget(self.file_list_widget)
+
+        # 文件操作按钮
+        file_btn_layout = QHBoxLayout()
+        btn_remove = QPushButton("➖ 移除选中")
+        btn_remove.clicked.connect(self.remove_files)
+        btn_clear = QPushButton("🗑️ 清空列表")
+        btn_clear.clicked.connect(self.clear_files)
+        file_btn_layout.addWidget(btn_remove)
+        file_btn_layout.addWidget(btn_clear)
+        file_btn_layout.addStretch()
+        file_layout.addLayout(file_btn_layout)
+
+        layout.addWidget(file_group)
+
+        # ===== 拆分规则 =====
+        rule_group = QGroupBox("拆分规则")
+        rule_group.setFont(group_font)
+        rule_layout = QVBoxLayout(rule_group)
+
+        # 拆分方式选择
+        rule_select_layout = QHBoxLayout()
+        rule_select_layout.addWidget(QLabel("拆分方式:"))
+        self.rule_combo = QComboBox()
+        self.rule_combo.addItems([
+            "按页数拆分",
+            "按自定义页码拆分",
+            "按书签/标题拆分",
+            "按行数拆分（Excel）",
+            "按工作表拆分（Excel）",
+            "按文件大小拆分（PDF）"
+        ])
+        self.rule_combo.currentIndexChanged.connect(self.on_rule_changed)
+        rule_select_layout.addWidget(self.rule_combo)
+        rule_select_layout.addStretch()
+        rule_layout.addLayout(rule_select_layout)
+
+        # 动态参数区域
+        self.params_widget = QWidget()
+        self.params_layout = QVBoxLayout(self.params_widget)
+        self.params_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 按页数拆分参数
+        self.param_page_count = QWidget()
+        pcl = QHBoxLayout(self.param_page_count)
+        pcl.setContentsMargins(0, 0, 0, 0)
+        pcl.addWidget(QLabel("每N页拆分:"))
+        self.spin_pages = QSpinBox()
+        self.spin_pages.setRange(1, 9999)
+        self.spin_pages.setValue(5)
+        pcl.addWidget(self.spin_pages)
+        pcl.addWidget(QLabel("页"))
+        pcl.addStretch()
+
+        # 按自定义页码参数
+        self.param_custom_pages = QWidget()
+        cpl = QHBoxLayout(self.param_custom_pages)
+        cpl.setContentsMargins(0, 0, 0, 0)
+        cpl.addWidget(QLabel("页码范围:"))
+        self.edit_custom_pages = QLineEdit()
+        self.edit_custom_pages.setPlaceholderText("例如: 1-3,4-6,7-10")
+        cpl.addWidget(self.edit_custom_pages)
+        cpl.addWidget(QLabel("每段生成一个文件"))
+        cpl.addStretch()
+
+        # 按书签/标题参数（无额外参数）
+        self.param_bookmark = QWidget()
+        bml = QHBoxLayout(self.param_bookmark)
+        bml.setContentsMargins(0, 0, 0, 0)
+        bml.addWidget(QLabel("自动按PDF书签或Word标题样式拆分"))
+        bml.addStretch()
+
+        # 按行数拆分参数
+        self.param_row_count = QWidget()
+        rcl = QHBoxLayout(self.param_row_count)
+        rcl.setContentsMargins(0, 0, 0, 0)
+        rcl.addWidget(QLabel("每N行拆分:"))
+        self.spin_rows = QSpinBox()
+        self.spin_rows.setRange(1, 999999)
+        self.spin_rows.setValue(100)
+        rcl.addWidget(self.spin_rows)
+        rcl.addWidget(QLabel("行（每个文件保留表头）"))
+        rcl.addStretch()
+
+        # 按工作表拆分参数
+        self.param_sheet = QWidget()
+        sl = QHBoxLayout(self.param_sheet)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.addWidget(QLabel("每N个工作表拆为一个文件:"))
+        self.spin_sheets = QSpinBox()
+        self.spin_sheets.setRange(1, 999)
+        self.spin_sheets.setValue(1)
+        sl.addWidget(self.spin_sheets)
+        sl.addWidget(QLabel("个工作表"))
+        sl.addStretch()
+
+        # 按文件大小参数
+        self.param_size = QWidget()
+        szl = QHBoxLayout(self.param_size)
+        szl.setContentsMargins(0, 0, 0, 0)
+        szl.addWidget(QLabel("目标大小:"))
+        self.spin_size = QSpinBox()
+        self.spin_size.setRange(1, 9999)
+        self.spin_size.setValue(5)
+        szl.addWidget(self.spin_size)
+        szl.addWidget(QLabel("MB"))
+        szl.addStretch()
+
+        # 添加所有参数widget
+        self.params_layout.addWidget(self.param_page_count)
+        self.params_layout.addWidget(self.param_custom_pages)
+        self.params_layout.addWidget(self.param_bookmark)
+        self.params_layout.addWidget(self.param_row_count)
+        self.params_layout.addWidget(self.param_sheet)
+        self.params_layout.addWidget(self.param_size)
+
+        rule_layout.addWidget(self.params_widget)
+        layout.addWidget(rule_group)
+
+        # 初始显示
+        self.on_rule_changed(0)
+
+        # ===== 命名设置 =====
+        naming_group = QGroupBox("命名设置")
+        naming_group.setFont(group_font)
+        naming_layout = QVBoxLayout(naming_group)
+
+        template_layout = QHBoxLayout()
+        template_layout.addWidget(QLabel("命名模板:"))
+        self.edit_naming = QLineEdit()
+        self.edit_naming.setText("{原名}_第{序号}部分")
+        self.edit_naming.setPlaceholderText("{原名}_第{序号}部分")
+        template_layout.addWidget(self.edit_naming)
+        naming_layout.addLayout(template_layout)
+
+        hint_label = QLabel("可用变量: {原名}  {序号}  {序号:02d}  {日期}  {页码范围}  {标题}")
+        hint_label.setStyleSheet("color: #999; font-size: 11px;")
+        naming_layout.addWidget(hint_label)
+
+        layout.addWidget(naming_group)
+
+        # ===== 输出设置 =====
+        output_group = QGroupBox("输出设置")
+        output_group.setFont(group_font)
+        output_layout = QVBoxLayout(output_group)
+
+        dir_layout = QHBoxLayout()
+        dir_layout.addWidget(QLabel("输出目录:"))
+        self.edit_output_dir = QLineEdit()
+        self.edit_output_dir.setPlaceholderText("请选择输出目录...")
+        self.edit_output_dir.setReadOnly(True)
+        dir_layout.addWidget(self.edit_output_dir)
+
+        btn_output_dir = QPushButton("📂 选择目录")
+        btn_output_dir.setMinimumWidth(110)
+        btn_output_dir.clicked.connect(self.select_output_dir)
+        dir_layout.addWidget(btn_output_dir)
+        output_layout.addLayout(dir_layout)
+
+        self.check_auto_open = QCheckBox("拆分后自动打开输出目录")
+        check_font = QFont()
+        check_font.setPointSize(10)
+        self.check_auto_open.setFont(check_font)
+        self.check_auto_open.setChecked(True)
+        self.check_auto_open.setStyleSheet("""
+            QCheckBox { spacing: 5px; }
+            QCheckBox::indicator { width: 30px; height: 30px; }
+        """)
+        output_layout.addWidget(self.check_auto_open)
+
+        layout.addWidget(output_group)
+
+        # ===== 操作按钮 =====
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(15)
+
+        self.btn_preview = QPushButton("👁️ 预览拆分")
+        self.btn_preview.setMinimumWidth(120)
+        self.btn_preview.clicked.connect(self.preview_split)
+        self.btn_preview.setEnabled(False)
+
+        self.btn_split = QPushButton("✂️ 开始拆分")
+        self.btn_split.setMinimumWidth(120)
+        self.btn_split.clicked.connect(self.start_split)
+        self.btn_split.setEnabled(False)
+
+        self.btn_stop = QPushButton("⏹ 停止")
+        self.btn_stop.setMinimumWidth(100)
+        self.btn_stop.clicked.connect(self.stop_split)
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B6B; color: white; border: none;
+                padding: 8px 15px; border-radius: 6px; min-height: 30px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #FF5252; }
+        """)
+
+        button_layout.addWidget(self.btn_preview)
+        button_layout.addWidget(self.btn_split)
+        button_layout.addWidget(self.btn_stop)
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        # 进度条
+        self.progress = QProgressBar()
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+
+        # ===== 结果显示 =====
+        result_group = QGroupBox("拆分结果")
+        result_group.setFont(group_font)
+        result_layout = QVBoxLayout(result_group)
+
+        self.result_text = QTextEdit()
+        text_font = QFont()
+        text_font.setPointSize(12)
+        self.result_text.setFont(text_font)
+        self.result_text.setReadOnly(True)
+        self.result_text.setMinimumHeight(200)
+        result_layout.addWidget(self.result_text)
+
+        layout.addWidget(result_group)
+
+    # ===== 拆分方式切换 =====
+    def on_rule_changed(self, index):
+        self.param_page_count.setVisible(index == 0)
+        self.param_custom_pages.setVisible(index == 1)
+        self.param_bookmark.setVisible(index == 2)
+        self.param_row_count.setVisible(index == 3)
+        self.param_sheet.setVisible(index == 4)
+        self.param_size.setVisible(index == 5)
+
+    def _get_rule_key(self):
+        mapping = {
+            0: "by_page_count",
+            1: "by_custom_pages",
+            2: "by_bookmark",
+            3: "by_row_count",
+            4: "by_sheet",
+            5: "by_size"
+        }
+        return mapping.get(self.rule_combo.currentIndex(), "by_page_count")
+
+    def _get_params(self):
+        rule = self._get_rule_key()
+        params = {}
+        if rule == "by_page_count":
+            params['pages_per_split'] = self.spin_pages.value()
+        elif rule == "by_custom_pages":
+            params['page_ranges'] = self.edit_custom_pages.text()
+        elif rule == "by_row_count":
+            params['rows_per_split'] = self.spin_rows.value()
+        elif rule == "by_sheet":
+            params['sheets_per_split'] = self.spin_sheets.value()
+        elif rule == "by_size":
+            params['target_size_mb'] = self.spin_size.value()
+        return params
+
+    # ===== 文件操作 =====
+    def add_files(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "选择文件", "",
+            "文档文件 (*.pdf *.docx *.xlsx);;PDF文件 (*.pdf);;Word文件 (*.docx);;Excel文件 (*.xlsx)")
+        self._add_files_to_list(files)
+
+    def add_files_batch(self):
+        folder = QFileDialog.getExistingDirectory(self, "选择包含文档的文件夹")
+        if not folder:
+            return
+        files = []
+        for f in os.listdir(folder):
+            ext = os.path.splitext(f)[1].lower()
+            if ext in ('.pdf', '.docx', '.xlsx'):
+                files.append(os.path.join(folder, f))
+        self._add_files_to_list(files)
+
+    def _add_files_to_list(self, files):
+        if not files:
+            return
+        for f in files:
+            if f not in self.file_list_data:
+                self.file_list_data.append(f)
+                self.file_list_widget.addItem(os.path.basename(f))
+        self._update_buttons()
+
+    def remove_files(self):
+        selected = self.file_list_widget.selectedItems()
+        if not selected:
+            QMessageBox.warning(self, "提示", "请先选择要移除的文件！")
+            return
+        for item in selected:
+            row = self.file_list_widget.row(item)
+            self.file_list_widget.takeItem(row)
+            self.file_list_data.pop(row)
+        self._update_buttons()
+
+    def clear_files(self):
+        if not self.file_list_data:
+            return
+        reply = QMessageBox.question(self, "确认清空", "确定要清空所有文件吗？",
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.file_list_data.clear()
+            self.file_list_widget.clear()
+            self._update_buttons()
+
+    def _update_buttons(self):
+        has_files = len(self.file_list_data) > 0
+        has_output = bool(self.edit_output_dir.text())
+        self.btn_preview.setEnabled(has_files)
+        self.btn_split.setEnabled(has_files and has_output)
+
+    def select_output_dir(self):
+        folder = QFileDialog.getExistingDirectory(self, "选择输出目录")
+        if folder:
+            self.edit_output_dir.setText(folder)
+            self._update_buttons()
+
+    # ===== 预览 =====
+    def preview_split(self):
+        if not self.file_list_data:
+            QMessageBox.warning(self, "提示", "请先选择文件！")
+            return
+
+        self.result_text.clear()
+        self.result_text.append("👁️ 拆分预览\n")
+        self.result_text.append("=" * 60 + "\n\n")
+
+        rule = self._get_rule_key()
+        params = self._get_params()
+        rule_name = self.rule_combo.currentText()
+
+        for file_path in self.file_list_data:
+            ext = os.path.splitext(file_path)[1].lower()
+            basename = os.path.basename(file_path)
+            self.result_text.append(f"📄 {basename}\n")
+
+            try:
+                if ext == '.pdf':
+                    reader = PyPDF2.PdfReader(file_path)
+                    total_pages = len(reader.pages)
+                    self.result_text.append(f"   总页数: {total_pages}\n")
+
+                    if rule == "by_page_count":
+                        n = params.get('pages_per_split', 5)
+                        count = (total_pages + n - 1) // n
+                        self.result_text.append(
+                            f"   拆分方式: 每{n}页 → {count}个文件\n")
+                        for i in range(count):
+                            start = i * n + 1
+                            end = min((i + 1) * n, total_pages)
+                            self.result_text.append(
+                                f"   文件{i+1}: 第{start}-{end}页\n")
+
+                    elif rule == "by_custom_pages":
+                        range_str = params.get('page_ranges', '')
+                        groups = self._parse_preview_ranges(range_str)
+                        self.result_text.append(
+                            f"   拆分方式: 自定义页码 → {len(groups)}个文件\n")
+                        for i, grp in enumerate(groups):
+                            valid = [p for p in grp if 1 <= p <= total_pages]
+                            if valid:
+                                self.result_text.append(
+                                    f"   文件{i+1}: 第{valid[0]}-{valid[-1]}页\n")
+
+                    elif rule == "by_bookmark":
+                        outlines = reader.outline
+                        if outlines:
+                            self.result_text.append(f"   拆分方式: 按书签拆分\n")
+                            self._preview_pdf_bookmarks(
+                                reader, outlines, total_pages)
+                        else:
+                            self.result_text.append(f"   ⚠️ 无书签，将回退为按页数拆分\n")
+
+                    elif rule == "by_size":
+                        target_mb = params.get('target_size_mb', 5)
+                        file_size = os.path.getsize(file_path)
+                        avg_size = file_size / max(total_pages, 1)
+                        pages_per = max(
+                            1, int(target_mb * 1024 * 1024 / max(avg_size, 1)))
+                        count = (total_pages + pages_per - 1) // pages_per
+                        self.result_text.append(
+                            f"   拆分方式: 每~{target_mb}MB → 约{count}个文件\n")
+
+                elif ext == '.docx':
+                    if not HAS_PYTHON_DOCX:
+                        self.result_text.append(f"   ❌ 缺少 python-docx 库\n")
+                        continue
+                    doc = DocxDocument(file_path)
+                    total_paras = len(doc.paragraphs)
+                    est_pages = max(1, total_paras // 15)
+                    self.result_text.append(
+                        f"   段落数: {total_paras} (约{est_pages}页)\n")
+
+                    if rule == "by_page_count":
+                        n = params.get('pages_per_split', 5)
+                        count = (est_pages + n - 1) // n
+                        self.result_text.append(
+                            f"   拆分方式: 每{n}页(近似) → 约{count}个文件\n")
+
+                    elif rule == "by_heading":
+                        heading_count = 0
+                        for para in doc.paragraphs:
+                            if para.style.name.startswith('Heading'):
+                                heading_count += 1
+                        self.result_text.append(
+                            f"   拆分方式: 按标题样式 → 约{heading_count}个文件\n")
+
+                elif ext == '.xlsx':
+                    wb = openpyxl.load_workbook(file_path, read_only=True)
+                    sheet_names = wb.sheetnames
+                    self.result_text.append(f"   工作表数: {len(sheet_names)}\n")
+
+                    if rule == "by_row_count":
+                        n = params.get('rows_per_split', 100)
+                        for sn in sheet_names:
+                            ws = wb[sn]
+                            row_count = ws.max_row - 1  # 减去表头
+                            if row_count > 0:
+                                count = (row_count + n - 1) // n
+                                self.result_text.append(
+                                    f"   {sn}: {row_count}行数据 → {count}个文件\n")
+
+                    elif rule == "by_sheet":
+                        n = params.get('sheets_per_split', 1)
+                        count = (len(sheet_names) + n - 1) // n
+                        self.result_text.append(
+                            f"   拆分方式: 每{n}个工作表 → {count}个文件\n")
+                        for i in range(count):
+                            start = i * n
+                            end = min((i + 1) * n, len(sheet_names))
+                            sheets = sheet_names[start:end]
+                            self.result_text.append(
+                                f"   文件{i+1}: {', '.join(sheets)}\n")
+
+                    wb.close()
+
+                else:
+                    self.result_text.append(f"   ⚠️ 不支持的格式\n")
+
+            except Exception as e:
+                self.result_text.append(f"   ❌ 预览失败: {str(e)}\n")
+
+            self.result_text.append("\n")
+
+    def _preview_pdf_bookmarks(self, reader, outlines, total_pages, depth=0):
+        for item in outlines:
+            if isinstance(item, list):
+                self._preview_pdf_bookmarks(
+                    reader, item, total_pages, depth + 1)
+            else:
+                try:
+                    page_num = reader.get_destination_page_number(item) + 1
+                    title = item.title if hasattr(
+                        item, 'title') else f"第{page_num}页"
+                    self.result_text.append(
+                        f"   {'  ' * depth}📑 {title} (第{page_num}页起)\n")
+                except Exception:
+                    pass
+
+    def _parse_preview_ranges(self, range_str):
+        groups = []
+        for part in range_str.split(','):
+            part = part.strip()
+            if '-' in part:
+                start, end = part.split('-', 1)
+                try:
+                    groups.append(list(range(int(start), int(end) + 1)))
+                except ValueError:
+                    continue
+            else:
+                try:
+                    groups.append([int(part)])
+                except ValueError:
+                    continue
+        return groups
+
+    # ===== 执行拆分 =====
+    def start_split(self):
+        if not self.file_list_data:
+            QMessageBox.warning(self, "提示", "请先选择文件！")
+            return
+
+        output_dir = self.edit_output_dir.text()
+        if not output_dir:
+            QMessageBox.warning(self, "提示", "请选择输出目录！")
+            return
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        rule = self._get_rule_key()
+        params = self._get_params()
+        naming_template = self.edit_naming.text() or "{原名}_第{序号}部分"
+
+        # 校验：按自定义页码时必须输入范围
+        if rule == "by_custom_pages" and not params.get('page_ranges'):
+            QMessageBox.warning(self, "提示", "请输入页码范围！")
+            return
+
+        self.btn_split.setEnabled(False)
+        self.btn_preview.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+        self.result_text.clear()
+        self.result_text.append("✂️ 开始拆分...\n")
+        self.result_text.append("=" * 60 + "\n\n")
+
+        self.split_worker = SplitWorker(
+            self.file_list_data, rule, params,
+            output_dir, naming_template, "original"
+        )
+        self.split_worker.progress_updated.connect(self.on_progress)
+        self.split_worker.split_completed.connect(self.on_split_completed)
+        self.split_worker.split_error.connect(self.on_split_error)
+        self.split_worker.start()
+
+    def stop_split(self):
+        if self.split_worker and self.split_worker.isRunning():
+            self.split_worker.stop()
+            self.result_text.append("\n⏹ 拆分已停止\n")
+        self.btn_split.setEnabled(True)
+        self.btn_preview.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        self.progress.setVisible(False)
+
+    def on_progress(self, value, message):
+        self.progress.setValue(value)
+        self.result_text.append(f"{message}\n")
+        QApplication.processEvents()
+
+    def on_split_completed(self, output_files):
+        self.result_text.append("\n" + "=" * 60 + "\n")
+        self.result_text.append(f"✅ 拆分完成！共生成 {len(output_files)} 个文件：\n\n")
+        for f in output_files:
+            self.result_text.append(f"   📄 {os.path.basename(f)}\n")
+
+        self.progress.setVisible(False)
+        self.btn_split.setEnabled(True)
+        self.btn_preview.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+
+        if self.check_auto_open.isChecked() and output_files:
+            output_dir = os.path.dirname(output_files[0])
+            if os.name == 'nt':
+                os.startfile(output_dir)
+
+        QMessageBox.information(
+            self, "完成", f"文档拆分完成！共生成 {len(output_files)} 个文件。")
+
+    def on_split_error(self, error_msg):
+        self.result_text.append(f"\n❌ {error_msg}\n")
 
 
 def main():
