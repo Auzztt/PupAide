@@ -29,29 +29,33 @@ Usage
 
 The following magic commands are provided:
 
-``%autoreload``
+``%autoreload``, ``%autoreload now``
 
     Reload all modules (except those excluded by ``%aimport``)
     automatically now.
 
-``%autoreload 0``
+``%autoreload 0``, ``%autoreload off``
 
     Disable automatic reloading.
 
-``%autoreload 1``
+``%autoreload 1``, ``%autoreload explicit``
 
     Reload all modules imported with ``%aimport`` every time before
     executing the Python code typed.
 
-``%autoreload 2``
+``%autoreload 2``, ``%autoreload all``
 
     Reload all modules (except those excluded by ``%aimport``) every
     time before executing the Python code typed.
 
-``%autoreload 3``
+``%autoreload 3``, ``%autoreload complete``
 
-    Reload all modules AND autoload newly added objects
-    every time before executing the Python code typed.
+    Same as 2/all, but also adds any new objects in the module. See
+    unit test at IPython/extensions/tests/test_autoreload.py::test_autoload_newly_added_objects
+
+  Adding ``--print`` or ``-p`` to the ``%autoreload`` line will print autoreload activity to
+  standard out. ``--log`` or ``-l`` will do it to the log at INFO level; both can be used
+  simultaneously.
 
 ``%aimport``
 
@@ -68,6 +72,30 @@ The following magic commands are provided:
 ``%aimport -foo``
 
     Mark module 'foo' to not be autoreloaded.
+
+Import Conflict Resolution
+==========================
+
+In ``%autoreload 3`` mode, the extension tracks ``from X import Y`` style imports
+and intelligently resolves conflicts when the same name is imported multiple ways.
+
+Import tracking occurs after successful code execution, ensuring that only valid
+imports are tracked. This approach handles edge cases such as:
+
+- Importing a name that doesn't initially exist in a module, then adding that name
+  to the module and importing it again
+- Conflicts between aliased imports (``from X import Y as Z``) and direct imports
+  (``from X import Z``)
+
+When conflicts occur:
+
+- If you first do ``from X import Y as Z`` then later ``from X import Z``,
+  the extension will switch to reloading ``Z`` instead of ``Y`` under the name ``Z``.
+
+- Similarly, if you first do ``from X import Z`` then later ``from X import Y as Z``,
+  the extension will switch to reloading ``Y`` as ``Z`` instead of the original ``Z``.
+
+- The most recent successful import always takes precedence in conflict resolution.
 
 Caveats
 =======
@@ -95,7 +123,15 @@ Some of the known remaining caveats are:
   before it is reloaded are not upgraded.
 
 - C extension modules cannot be reloaded, and so cannot be autoreloaded.
+
+- While comparing Enum and Flag, the 'is' Identity Operator is used (even in the case '==' has been used (Similar to the 'None' keyword)).
+
+- Reloading a module, or importing the same module by a different name, creates new Enums. These may look the same, but are not.
 """
+
+from IPython.core import magic_arguments
+from IPython.core.magic import Magics, magics_class, line_magic
+from IPython.extensions.deduperreload.deduperreload import DeduperReloader
 
 __skip_doctest__ = True
 
@@ -115,12 +151,14 @@ __skip_doctest__ = True
 # Imports
 # -----------------------------------------------------------------------------
 
+import ast
 import os
 import sys
 import traceback
 import types
 import weakref
 import gc
+import logging
 from importlib import import_module, reload
 from importlib.util import source_from_cache
 
@@ -152,8 +190,20 @@ class ModuleReloader:
         self.modules_mtimes = {}
         self.shell = shell
 
+        # Reporting callable for verbosity
+        self._report = lambda msg: None  # by default, be quiet.
+
+        # Deduper reloader
+        self.deduper_reloader = DeduperReloader()
+
+        # Persistent import tracker for from-imports
+        self.import_from_tracker = ImportFromTracker({}, {})
+
         # Cache module modification times
         self.check(check_all=True, do_reload=False)
+
+        # To hide autoreload errors
+        self.hide_errors = False
 
     def mark_module_skipped(self, module_name):
         """Skip reloading the named module in the future"""
@@ -170,6 +220,10 @@ class ModuleReloader:
         except KeyError:
             pass
         self.modules[module_name] = True
+
+    def clear_import_tracker(self):
+        """Clear the persistent import tracker state"""
+        self.import_from_tracker = ImportFromTracker({}, {})
 
     def aimport_module(self, module_name):
         """Import a module, and mark it reloadable
@@ -215,7 +269,7 @@ class ModuleReloader:
 
         return py_filename, pymtime
 
-    def check(self, check_all=False, do_reload=True):
+    def check(self, check_all=False, do_reload=True, execution_info=None):
         """Check whether some modules need to be reloaded."""
 
         if not self.enabled and not check_all:
@@ -226,6 +280,10 @@ class ModuleReloader:
         else:
             modules = list(self.modules.keys())
 
+        # Use the persistent import_from_tracker
+        import_from_tracker = (
+            self.import_from_tracker if self.import_from_tracker.imports_froms else None
+        )
         for modname in modules:
             m = sys.modules.get(modname, None)
 
@@ -250,21 +308,37 @@ class ModuleReloader:
 
             # If we've reached this point, we should try to reload the module
             if do_reload:
+                self._report(f"Reloading '{modname}'.")
                 try:
                     if self.autoload_obj:
-                        superreload(m, reload, self.old_objects, self.shell)
+                        superreload(
+                            m,
+                            reload,
+                            self.old_objects,
+                            self.shell,
+                            import_from_tracker=import_from_tracker,
+                        )
+                    # if not using autoload, check if deduperreload is viable for this module
+                    elif self.deduper_reloader.maybe_reload_module(m):
+                        pass
                     else:
                         superreload(m, reload, self.old_objects)
                     if py_filename in self.failed:
                         del self.failed[py_filename]
                 except:
-                    print(
-                        "[autoreload of {} failed: {}]".format(
-                            modname, traceback.format_exc(10)
-                        ),
-                        file=sys.stderr,
-                    )
+                    if not self.hide_errors:
+                        logger = logging.getLogger("autoreload")
+                        logger.exception(
+                            f"Failed to reload module '{modname}' from file '{py_filename}'"
+                        )
+                        print(
+                            "[autoreload of {} failed: {}]".format(
+                                modname, traceback.format_exc(10)
+                            ),
+                            file=sys.stderr,
+                        )
                     self.failed[py_filename] = pymtime
+        self.deduper_reloader.update_sources()
 
 
 # ------------------------------------------------------------------------------
@@ -300,7 +374,7 @@ def update_instances(old, new):
 
     for ref in refs:
         if type(ref) is old:
-            ref.__class__ = new
+            object.__setattr__(ref, "__class__", new)
 
 
 def update_class(old, new):
@@ -399,6 +473,59 @@ mod_attrs = [
 ]
 
 
+class ImportFromTracker:
+    def __init__(self, imports_froms: dict, symbol_map: dict):
+        self.imports_froms = imports_froms
+        # symbol_map maps original_name -> list of resolved_names
+        self.symbol_map = {}
+        if symbol_map:
+            for module_name, mappings in symbol_map.items():
+                self.symbol_map[module_name] = {}
+                for original_name, resolved_names in mappings.items():
+                    if isinstance(resolved_names, list):
+                        self.symbol_map[module_name][original_name] = resolved_names[:]
+                    else:
+                        self.symbol_map[module_name][original_name] = [resolved_names]
+        else:
+            self.symbol_map = symbol_map or {}
+
+    def add_import(
+        self, module_name: str, original_name: str, resolved_name: str
+    ) -> None:
+        """Add an import, handling conflicts with existing imports.
+
+        This method is called after successful code execution, so we know the import is valid.
+        """
+        if module_name not in self.imports_froms:
+            self.imports_froms[module_name] = []
+        if module_name not in self.symbol_map:
+            self.symbol_map[module_name] = {}
+
+        # Check if there's already a different mapping for the same resolved_name from a different original_name
+        # We need to remove any conflicting mappings
+        for orig_name, res_names in list(self.symbol_map[module_name].items()):
+            if resolved_name in res_names and orig_name != original_name:
+                # Remove the conflicting resolved_name from the other original_name's list
+                res_names.remove(resolved_name)
+                if (
+                    not res_names
+                ):  # If the list is now empty, remove the original_name entirely
+                    if orig_name in self.imports_froms[module_name]:
+                        self.imports_froms[module_name].remove(orig_name)
+                    del self.symbol_map[module_name][orig_name]
+
+        # Add the new mapping
+        if original_name not in self.imports_froms[module_name]:
+            self.imports_froms[module_name].append(original_name)
+
+        if original_name not in self.symbol_map[module_name]:
+            self.symbol_map[module_name][original_name] = []
+
+        # Add the resolved_name if it's not already in the list
+        if resolved_name not in self.symbol_map[module_name][original_name]:
+            self.symbol_map[module_name][original_name].append(resolved_name)
+
+
 def append_obj(module, d, name, obj, autoload=False):
     in_module = hasattr(obj, "__module__") and obj.__module__ == module.__name__
     if autoload:
@@ -417,7 +544,9 @@ def append_obj(module, d, name, obj, autoload=False):
     return True
 
 
-def superreload(module, reload=reload, old_objects=None, shell=None):
+def superreload(
+    module, reload=reload, old_objects=None, shell=None, import_from_tracker=None
+):
     """Enhanced version of the builtin reload function.
 
     superreload remembers objects previously in the module, and
@@ -458,18 +587,34 @@ def superreload(module, reload=reload, old_objects=None, shell=None):
         module.__dict__.update(old_dict)
         raise
 
-    # iterate over all objects and update functions & classes
     for name, new_obj in list(module.__dict__.items()):
         key = (module.__name__, name)
         if key not in old_objects:
             # here 'shell' acts both as a flag and as an output var
+            imports_froms = (
+                import_from_tracker.imports_froms if import_from_tracker else None
+            )
+            symbol_map = import_from_tracker.symbol_map if import_from_tracker else None
             if (
                 shell is None
                 or name == "Enum"
                 or not append_obj(module, old_objects, name, new_obj, True)
+                or (
+                    imports_froms
+                    and module.__name__ in imports_froms
+                    and "*" not in imports_froms[module.__name__]
+                    and name not in imports_froms[module.__name__]
+                )
             ):
                 continue
-            shell.user_ns[name] = new_obj
+
+            # Handle symbol mapping - now supporting multiple resolved names per original name
+            if symbol_map and name in symbol_map.get(module.__name__, {}):
+                resolved_names = symbol_map.get(module.__name__, {})[name]
+                for resolved_name in resolved_names:
+                    shell.user_ns[resolved_name] = new_obj
+            else:
+                shell.user_ns[name] = new_obj
 
         new_refs = []
         for old_ref in old_objects[key]:
@@ -491,8 +636,6 @@ def superreload(module, reload=reload, old_objects=None, shell=None):
 # IPython connectivity
 # ------------------------------------------------------------------------------
 
-from IPython.core.magic import Magics, magics_class, line_magic
-
 
 @magics_class
 class AutoreloadMagics(Magics):
@@ -504,23 +647,86 @@ class AutoreloadMagics(Magics):
         self.loaded_modules = set(sys.modules)
 
     @line_magic
-    def autoreload(self, parameter_s=""):
+    @magic_arguments.magic_arguments()
+    @magic_arguments.argument(
+        "mode",
+        type=str,
+        default="now",
+        nargs="?",
+        help="""blank or 'now' - Reload all modules (except those excluded by %%aimport)
+             automatically now.
+
+             '0' or 'off' - Disable automatic reloading.
+
+             '1' or 'explicit' - Reload only modules imported with %%aimport every
+             time before executing the Python code typed.
+
+             '2' or 'all' - Reload all modules (except those excluded by %%aimport)
+             every time before executing the Python code typed.
+
+             '3' or 'complete' - Same as 2/all, but also adds any new
+             objects in the module.
+             
+             By default, a newer autoreload algorithm that diffs the module's source code
+             with the previous version and only reloads changed parts is applied for modes
+             2 and below. To use the original algorithm, add the `-` suffix to the mode,
+             e.g. '%autoreload 2-', or pass in --full.
+             """,
+    )
+    @magic_arguments.argument(
+        "-p",
+        "--print",
+        action="store_true",
+        default=False,
+        help="Show autoreload activity using `print` statements",
+    )
+    @magic_arguments.argument(
+        "-l",
+        "--log",
+        action="store_true",
+        default=False,
+        help="Show autoreload activity using the logger",
+    )
+    @magic_arguments.argument(
+        "--hide-errors",
+        action="store_true",
+        default=False,
+        help="Hide autoreload errors",
+    )
+    @magic_arguments.argument(
+        "--full",
+        action="store_true",
+        default=False,
+        help="Don't ever use new diffing algorithm",
+    )
+    def autoreload(self, line=""):
         r"""%autoreload => Reload modules automatically
 
-        %autoreload
+        %autoreload or %autoreload now
         Reload all modules (except those excluded by %aimport) automatically
         now.
 
-        %autoreload 0
+        %autoreload 0 or %autoreload off
         Disable automatic reloading.
 
-        %autoreload 1
-        Reload all modules imported with %aimport every time before executing
+        %autoreload 1 or %autoreload explicit
+        Reload only modules imported with %aimport every time before executing
         the Python code typed.
 
-        %autoreload 2
+        %autoreload 2 or %autoreload all
         Reload all modules (except those excluded by %aimport) every time
         before executing the Python code typed.
+
+        %autoreload 3 or %autoreload complete
+        Same as 2/all, but also but also adds any new objects in the module. See
+        unit test at IPython/extensions/tests/test_autoreload.py::test_autoload_newly_added_objects
+
+        The optional arguments --print and --log control display of autoreload activity. The default
+        is to act silently; --print (or -p) will print out the names of modules that are being
+        reloaded, and --log (or -l) outputs them to the log at INFO level.
+
+        The optional argument --hide-errors hides any errors that can happen when trying to
+        reload code.
 
         Reloading Python modules in a reliable way is in general
         difficult, and unexpected things may occur. %autoreload tries to
@@ -548,21 +754,55 @@ class AutoreloadMagics(Magics):
           autoreloaded.
 
         """
-        if parameter_s == "":
+        args = magic_arguments.parse_argstring(self.autoreload, line)
+        mode = args.mode.lower()
+
+        enable_deduperreload = not args.full
+        if mode.endswith("-"):
+            enable_deduperreload = False
+            mode = mode[:-1]
+        self._reloader.deduper_reloader.enabled = enable_deduperreload
+
+        p = print
+
+        logger = logging.getLogger("autoreload")
+
+        l = logger.info
+
+        def pl(msg):
+            p(msg)
+            l(msg)
+
+        if args.print is False and args.log is False:
+            self._reloader._report = lambda msg: None
+        elif args.print is True:
+            if args.log is True:
+                self._reloader._report = pl
+            else:
+                self._reloader._report = p
+        elif args.log is True:
+            self._reloader._report = l
+
+        self._reloader.hide_errors = args.hide_errors
+
+        if mode == "" or mode == "now":
             self._reloader.check(True)
-        elif parameter_s == "0":
+        elif mode == "0" or mode == "off":
             self._reloader.enabled = False
-        elif parameter_s == "1":
+        elif mode == "1" or mode == "explicit":
+            self._reloader.enabled = True
             self._reloader.check_all = False
+            self._reloader.autoload_obj = False
+        elif mode == "2" or mode == "all":
             self._reloader.enabled = True
-        elif parameter_s == "2":
             self._reloader.check_all = True
+            self._reloader.autoload_obj = False
+        elif mode == "3" or mode == "complete":
             self._reloader.enabled = True
-            self._reloader.enabled = True
-        elif parameter_s == "3":
             self._reloader.check_all = True
-            self._reloader.enabled = True
             self._reloader.autoload_obj = True
+        else:
+            raise ValueError(f'Unrecognized autoreload mode "{mode}".')
 
     @line_magic
     def aimport(self, parameter_s="", stream=None):
@@ -572,13 +812,14 @@ class AutoreloadMagics(Magics):
         List modules to automatically import and not to import.
 
         %aimport foo
-        Import module 'foo' and mark it to be autoreloaded for %autoreload 1
+        Import module 'foo' and mark it to be autoreloaded for %autoreload explicit
 
         %aimport foo, bar
-        Import modules 'foo', 'bar' and mark them to be autoreloaded for %autoreload 1
+        Import modules 'foo', 'bar' and mark them to be autoreloaded for %autoreload explicit
 
-        %aimport -foo
-        Mark module 'foo' to not be autoreloaded for %autoreload 1
+        %aimport -foo, bar
+        Mark module 'foo' to not be autoreloaded for %autoreload explicit, all, or complete, and 'bar'
+        to be autoreloaded for mode explicit.
         """
         modname = parameter_s
         if not modname:
@@ -591,17 +832,21 @@ class AutoreloadMagics(Magics):
             else:
                 stream.write("Modules to reload:\n%s\n" % " ".join(to_reload))
             stream.write("\nModules to skip:\n%s\n" % " ".join(to_skip))
-        elif modname.startswith("-"):
-            modname = modname[1:]
-            self._reloader.mark_module_skipped(modname)
         else:
             for _module in [_.strip() for _ in modname.split(",")]:
-                top_module, top_name = self._reloader.aimport_module(_module)
+                if _module.startswith("-"):
+                    _module = _module[1:].strip()
+                    self._reloader.mark_module_skipped(_module)
+                else:
+                    top_module, top_name = self._reloader.aimport_module(_module)
 
-                # Inject module to user namespace
-                self.shell.push({top_name: top_module})
+                    # Inject module to user namespace
+                    self.shell.push({top_name: top_module})
 
-    def pre_run_cell(self):
+    def pre_run_cell(self, info):
+        # Store the execution info for later use in post_execute_hook
+        self._last_execution_info = info
+
         if self._reloader.enabled:
             try:
                 self._reloader.check()
@@ -609,7 +854,20 @@ class AutoreloadMagics(Magics):
                 pass
 
     def post_execute_hook(self):
-        """Cache the modification times of any modules imported in this execution"""
+        """Cache the modification times of any modules imported in this execution and track imports"""
+
+        # Track imports from the recently executed code if autoreload 3 is enabled
+        if self._reloader.enabled and self._reloader.autoload_obj:
+            # Use the stored execution info
+            if (
+                hasattr(self, "_last_execution_info")
+                and self._last_execution_info
+                and self._last_execution_info.transformed_cell
+            ):
+                self._track_imports_from_code(
+                    self._last_execution_info.transformed_cell
+                )
+
         newly_loaded_modules = set(sys.modules) - self.loaded_modules
         for modname in newly_loaded_modules:
             _, pymtime = self._reloader.filename_and_mtime(sys.modules[modname])
@@ -617,6 +875,36 @@ class AutoreloadMagics(Magics):
                 self._reloader.modules_mtimes[modname] = pymtime
 
         self.loaded_modules.update(newly_loaded_modules)
+
+    def _track_imports_from_code(self, code: str) -> None:
+        """Track import statements from executed code"""
+        try:
+            tree = ast.parse(code)
+
+            for node in ast.walk(tree):
+                # Handle "from X import Y" style imports
+                if isinstance(node, ast.ImportFrom):
+                    mod = node.module
+
+                    # Skip relative imports that don't have a module name
+                    if mod is None:
+                        continue
+
+                    for name in node.names:
+                        # name.name is going to be actual name that we want to import from module
+                        # name.asname is Z in the case of from X import Y as Z
+                        # we should update Z in the shell in this situation, so track it too.
+                        original_name = name.name
+                        resolved_name = name.asname if name.asname else name.name
+
+                        # Since the code executed successfully, we know this import is valid
+                        self._reloader.import_from_tracker.add_import(
+                            mod, original_name, resolved_name
+                        )
+        except (SyntaxError, ValueError):
+            # If there's a syntax error, skip import tracking
+            # (though this shouldn't happen since the code already executed successfully)
+            pass
 
 
 def load_ipython_extension(ip):

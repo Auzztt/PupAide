@@ -189,7 +189,7 @@ class PupAideMainWindow(QMainWindow):
 
         # 底部信息
         bottom_layout = QHBoxLayout()
-        info_label = QLabel("版本 1.2.0")
+        info_label = QLabel("版本 1.2.1")
         info_font = QFont()
         info_font.setPointSize(13)
         info_label.setFont(info_font)
@@ -3784,7 +3784,16 @@ class DocSplitPage(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        from PyQt6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
 
@@ -4189,6 +4198,10 @@ class DocSplitPage(QWidget):
         result_layout.addWidget(self.result_text)
 
         layout.addWidget(result_group)
+        layout.addStretch()
+
+        scroll.setWidget(container)
+        outer_layout.addWidget(scroll)
 
     def import_names(self):
         """从Excel或TXT导入命名变量"""
@@ -4600,7 +4613,8 @@ except ImportError:
 
 
 # ========== 彩蛋系统 ==========
-EASTER_EGG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pup_aide_easter_eggs.json')
+_EASTER_EGG_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'PupAide')
+EASTER_EGG_FILE = os.path.join(_EASTER_EGG_DIR, 'pup_aide_easter_eggs.json')
 
 HOLIDAYS = {
     (1, 1): ("🎊 元旦快乐", "新的一年，会更爱你"),
@@ -4663,6 +4677,7 @@ def _load_easter_egg_data():
 
 def _save_easter_egg_data(data):
     try:
+        os.makedirs(_EASTER_EGG_DIR, exist_ok=True)
         with open(EASTER_EGG_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception:
@@ -4823,7 +4838,7 @@ class EasterEggManager:
             if str(years_together) not in shown:
                 self._show_dialog(
                     "🎉 纪念日快乐",
-                    f"今天是你们在一起 {years_together} 年的纪念日！\n愿每一天都如初见般美好 🥰",
+                    f"今天是我们在一起 {years_together} 年的纪念日！\n小狗会一直爱你哦 🥰",
                     "💕"
                 )
                 shown.append(str(years_together))
@@ -4833,9 +4848,9 @@ class EasterEggManager:
             if str(years_together) not in shown:
                 days_passed = (today - anni_this_year).days
                 self._show_dialog(
-                    "💕 纪念日补祝",
-                    f"{days_passed} 天前是你们在一起 {years_together} 年的纪念日，\n"
-                    f"当天你没有打开使用哦，\n希望你们已经度过了一个开心的纪念日 🌹",
+                    "💕 纪念日过啦",
+                    f"{days_passed} 天前是我们在一起 {years_together} 年的纪念日，\n"
+                    f"当天你没有打开使用哦，\n我们一定已经度过了一个开心的纪念日 🌹",
                     "🌹"
                 )
                 shown.append(str(years_together))
@@ -4901,7 +4916,7 @@ class EasterEggManager:
                         age = today.year - bday.year
                         self._show_dialog(
                             "🎂 生日快乐",
-                            f"今天是你的 {age} 岁生日！\n新的一岁，小狗会继续陪你过好每一天！",
+                            f"今天是小宝的 {age} 岁生日！\n新的一岁，小狗会继续陪你过好每一天！",
                             "🎂"
                         )
                         shown.append(today_str + '_bday')
@@ -4922,7 +4937,7 @@ class EasterEggManager:
                     if today_str + '_lbday' not in shown:
                         self._show_dialog(
                             "🎂 农历生日快乐",
-                            "今天是你的农历生日！\n生日快乐哦，小宝~",
+                            "今天是小宝的农历生日！\n生日快乐哦，小宝~",
                             "🎂"
                         )
                         shown.append(today_str + '_lbday')
