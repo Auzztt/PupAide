@@ -12,8 +12,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QTextEdit, QProgressBar, QGroupBox, QCheckBox,
                              QLineEdit, QSplitter, QTabWidget, QComboBox, QFormLayout,
                              QSlider, QColorDialog, QAbstractItemView, QSpinBox,
-                             QTreeWidget, QTreeWidgetItem, QHeaderView, QTableWidget, QTableWidgetItem)
-from PyQt6.QtGui import QBrush, QIcon
+                             QTreeWidget, QTreeWidgetItem, QHeaderView, QTableWidget, QTableWidgetItem, QStyle)
+from PyQt6.QtGui import QBrush, QIcon, QColor
 import subprocess
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
@@ -187,7 +187,7 @@ class PupAideMainWindow(QMainWindow):
         left_layout.addWidget(self.nav_list)
 
         # 底部信息
-        info_label = QLabel("版本 1.1.0\n拖动右侧边缘可调整菜单宽度")
+        info_label = QLabel("版本 1.2.0\n拖动右侧边缘可调整菜单宽度")
         info_font = QFont()
         info_font.setPointSize(13)
         info_label.setFont(info_font)
@@ -439,103 +439,108 @@ class DuplicateFilePage(QWidget):
         self.result_text.append(f"🔍 正在扫描文件夹: {self.scan_folder}\n")
         self.result_text.append("=" * 60 + "\n\n")
 
-        self.progress.setValue(30)
+        try:
+            self.progress.setValue(30)
 
-        file_dict = {}
-        total_files = 0
+            file_dict = {}
+            total_files = 0
 
-        # 遍历文件
-        if self.check_subfolders.isChecked():
-            for root, dirs, files in os.walk(self.scan_folder):
-                for file in files:
-                    total_files += 1
-        else:
-            for file in os.listdir(self.scan_folder):
-                if os.path.isfile(os.path.join(self.scan_folder, file)):
-                    total_files += 1
+            # 遍历文件
+            if self.check_subfolders.isChecked():
+                for root, dirs, files in os.walk(self.scan_folder):
+                    for file in files:
+                        total_files += 1
+            else:
+                for file in os.listdir(self.scan_folder):
+                    if os.path.isfile(os.path.join(self.scan_folder, file)):
+                        total_files += 1
 
-        if total_files == 0:
-            self.result_text.append("❌ 没有找到任何文件\n")
-            self.progress.setVisible(False)
-            self.btn_scan.setEnabled(True)
-            return
+            if total_files == 0:
+                self.result_text.append("❌ 没有找到任何文件\n")
+                self.progress.setVisible(False)
+                self.btn_scan.setEnabled(True)
+                return
 
-        self.progress.setValue(50)
-        self.result_text.append(f"📊 找到 {total_files} 个文件，正在分析...\n\n")
+            self.progress.setValue(50)
+            self.result_text.append(f"📊 找到 {total_files} 个文件，正在分析...\n\n")
 
-        # 计算文件哈希
-        scanned = 0
-        if self.check_subfolders.isChecked():
-            for root, dirs, files in os.walk(self.scan_folder):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    try:
-                        if os.path.getsize(file_path) > 1024:
-                            with open(file_path, 'rb') as f:
-                                file_hash = hashlib.md5(
-                                    f.read(8192)).hexdigest()
+            # 计算文件哈希
+            scanned = 0
+            if self.check_subfolders.isChecked():
+                for root, dirs, files in os.walk(self.scan_folder):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        try:
+                            if os.path.getsize(file_path) > 1024:
+                                with open(file_path, 'rb') as f:
+                                    file_hash = hashlib.md5(
+                                        f.read(8192)).hexdigest()
 
-                            key = (file, os.path.getsize(file_path))
-                            if key not in file_dict:
-                                file_dict[key] = []
-                            file_dict[key].append(file_path)
-                    except:
-                        pass
-                    scanned += 1
-                    if scanned % 10 == 0:
-                        self.progress.setValue(
-                            50 + int(scanned / total_files * 40))
-        else:
-            for file in os.listdir(self.scan_folder):
-                file_path = os.path.join(self.scan_folder, file)
-                if os.path.isfile(file_path):
-                    try:
-                        if os.path.getsize(file_path) > 1024:
-                            with open(file_path, 'rb') as f:
-                                file_hash = hashlib.md5(
-                                    f.read(8192)).hexdigest()
+                                key = (file, os.path.getsize(file_path))
+                                if key not in file_dict:
+                                    file_dict[key] = []
+                                file_dict[key].append(file_path)
+                        except Exception:
+                            pass
+                        scanned += 1
+                        if scanned % 10 == 0:
+                            self.progress.setValue(
+                                50 + int(scanned / total_files * 40))
+                            QApplication.processEvents()
+            else:
+                for file in os.listdir(self.scan_folder):
+                    file_path = os.path.join(self.scan_folder, file)
+                    if os.path.isfile(file_path):
+                        try:
+                            if os.path.getsize(file_path) > 1024:
+                                with open(file_path, 'rb') as f:
+                                    file_hash = hashlib.md5(
+                                        f.read(8192)).hexdigest()
 
-                            key = (file, os.path.getsize(file_path))
-                            if key not in file_dict:
-                                file_dict[key] = []
-                            file_dict[key].append(file_path)
-                    except:
-                        pass
-                    scanned += 1
-                    if scanned % 10 == 0:
-                        self.progress.setValue(
-                            50 + int(scanned / total_files * 40))
+                                key = (file, os.path.getsize(file_path))
+                                if key not in file_dict:
+                                    file_dict[key] = []
+                                file_dict[key].append(file_path)
+                        except Exception:
+                            pass
+                        scanned += 1
+                        if scanned % 10 == 0:
+                            self.progress.setValue(
+                                50 + int(scanned / total_files * 40))
+                            QApplication.processEvents()
 
-        self.progress.setValue(100)
+            self.progress.setValue(100)
 
-        # 显示结果
-        duplicates_found = False
-        for (filename, size), paths in file_dict.items():
-            if len(paths) > 1:
-                duplicates_found = True
-                size_kb = size / 1024
-                if size_kb > 1024:
-                    size_str = f"{size_kb/1024:.2f} MB"
-                else:
-                    size_str = f"{size_kb:.2f} KB"
+            # 显示结果
+            duplicates_found = False
+            for (filename, size), paths in file_dict.items():
+                if len(paths) > 1:
+                    duplicates_found = True
+                    size_kb = size / 1024
+                    if size_kb > 1024:
+                        size_str = f"{size_kb/1024:.2f} MB"
+                    else:
+                        size_str = f"{size_kb:.2f} KB"
 
-                self.result_text.append(f"📄 {filename} ({size_str})\n")
-                for path in paths:
-                    self.result_text.append(f"   └─ {path}\n")
-                self.result_text.append("\n")
+                    self.result_text.append(f"📄 {filename} ({size_str})\n")
+                    for path in paths:
+                        self.result_text.append(f"   └─ {path}\n")
+                    self.result_text.append("\n")
 
-        if not duplicates_found:
-            self.result_text.append("✅ 扫描完成！没有找到重复文件！\n")
-        else:
-            self.result_text.append(
-                f"\n✅ 扫描完成！共找到 {len([k for k,v in file_dict.items() if len(v)>1])} 组重复文件\n")
+            if not duplicates_found:
+                self.result_text.append("✅ 扫描完成！没有找到重复文件！\n")
+            else:
+                self.result_text.append(
+                    f"\n✅ 扫描完成！共找到 {len([k for k,v in file_dict.items() if len(v)>1])} 组重复文件\n")
+
+        except Exception as e:
+            self.result_text.append(f"❌ 扫描过程中发生错误：{str(e)}\n")
 
         self.progress.setVisible(False)
         self.btn_scan.setEnabled(True)
 
 
 # ========== 功能2：文件夹同步/备份工具 ==========
-# todo 同步程序崩溃
 class SyncBackupPage(QWidget):
     def __init__(self):
         super().__init__()
@@ -895,133 +900,141 @@ class SyncBackupPage(QWidget):
         self.result_text.append("🔄 开始同步...\n")
         self.result_text.append("=" * 60 + "\n\n")
 
-        # 收集源文件夹中的所有文件
-        source_files = {}
         try:
-            if self.check_subfolders.isChecked():
-                for root, dirs, files in os.walk(self.source_folder):
-                    for file in files:
-                        full_path = os.path.join(root, file)
-                        rel_path = os.path.relpath(
-                            full_path, self.source_folder)
-                        source_files[rel_path] = full_path
-            else:
-                for item in os.listdir(self.source_folder):
-                    full_path = os.path.join(self.source_folder, item)
-                    if os.path.isfile(full_path):
-                        source_files[item] = full_path
-        except Exception as e:
-            self.result_text.append(f"❌ 扫描源文件夹失败：{str(e)}\n")
-            self.progress.setVisible(False)
-            self.btn_sync.setEnabled(True)
-            self.btn_preview.setEnabled(True)
-            return
-
-        total_files = len(source_files)
-        if total_files == 0:
-            self.result_text.append("❌ 源文件夹中没有找到文件\n")
-            self.progress.setVisible(False)
-            self.btn_sync.setEnabled(True)
-            self.btn_preview.setEnabled(True)
-            return
-
-        copied = 0
-        failed = 0
-
-        # 创建目标文件夹结构并复制文件
-        import shutil
-
-        for rel_path, src_path in source_files.items():
-            target_path = os.path.join(self.target_folder, rel_path)
-            target_dir = os.path.dirname(target_path)
-
-            # 创建目标文件夹
-            if not os.path.exists(target_dir):
-                try:
-                    os.makedirs(target_dir)
-                except Exception as e:
-                    self.result_text.append(
-                        f"❌ 创建文件夹失败: {target_dir} - {str(e)}\n")
-                    failed += 1
-                    continue
-
-            # 检查是否需要复制
-            need_copy = False
-            if not os.path.exists(target_path):
-                need_copy = True
-            elif self.check_overwrite.isChecked():
-                src_size = os.path.getsize(src_path)
-                dst_size = os.path.getsize(target_path)
-                if src_size != dst_size:
-                    need_copy = True
-
-            if need_copy:
-                try:
-                    shutil.copy2(src_path, target_path)
-                    copied += 1
-                    self.result_text.append(f"✅ 复制: {rel_path}\n")
-                except Exception as e:
-                    failed += 1
-                    self.result_text.append(f"❌ 复制失败: {rel_path} - {str(e)}\n")
-
-            # 更新进度
-            progress_value = int((copied + failed) / total_files * 80)
-            self.progress.setValue(progress_value)
-            QApplication.processEvents()
-
-        # 删除多余的文件
-        deleted = 0
-        if self.check_delete.isChecked():
-            self.result_text.append("\n🗑️ 正在删除多余文件...\n")
-
+            # 收集源文件夹中的所有文件
+            source_files = {}
             try:
                 if self.check_subfolders.isChecked():
-                    for root, dirs, files in os.walk(self.target_folder):
+                    for root, dirs, files in os.walk(self.source_folder):
                         for file in files:
                             full_path = os.path.join(root, file)
                             rel_path = os.path.relpath(
-                                full_path, self.target_folder)
-                            if rel_path not in source_files:
+                                full_path, self.source_folder)
+                            source_files[rel_path] = full_path
+                else:
+                    for item in os.listdir(self.source_folder):
+                        full_path = os.path.join(self.source_folder, item)
+                        if os.path.isfile(full_path):
+                            source_files[item] = full_path
+            except Exception as e:
+                self.result_text.append(f"❌ 扫描源文件夹失败：{str(e)}\n")
+                self.progress.setVisible(False)
+                self.btn_sync.setEnabled(True)
+                self.btn_preview.setEnabled(True)
+                return
+
+            total_files = len(source_files)
+            if total_files == 0:
+                self.result_text.append("❌ 源文件夹中没有找到文件\n")
+                self.progress.setVisible(False)
+                self.btn_sync.setEnabled(True)
+                self.btn_preview.setEnabled(True)
+                return
+
+            copied = 0
+            failed = 0
+
+            # 创建目标文件夹结构并复制文件
+            import shutil
+
+            for rel_path, src_path in source_files.items():
+                target_path = os.path.join(self.target_folder, rel_path)
+                target_dir = os.path.dirname(target_path)
+
+                # 创建目标文件夹
+                if not os.path.exists(target_dir):
+                    try:
+                        os.makedirs(target_dir)
+                    except Exception as e:
+                        self.result_text.append(
+                            f"❌ 创建文件夹失败: {target_dir} - {str(e)}\n")
+                        failed += 1
+                        continue
+
+                # 检查是否需要复制
+                need_copy = False
+                if not os.path.exists(target_path):
+                    need_copy = True
+                elif self.check_overwrite.isChecked():
+                    try:
+                        src_size = os.path.getsize(src_path)
+                        dst_size = os.path.getsize(target_path)
+                        if src_size != dst_size:
+                            need_copy = True
+                    except Exception:
+                        need_copy = True
+
+                if need_copy:
+                    try:
+                        shutil.copy2(src_path, target_path)
+                        copied += 1
+                        self.result_text.append(f"✅ 复制: {rel_path}\n")
+                    except Exception as e:
+                        failed += 1
+                        self.result_text.append(f"❌ 复制失败: {rel_path} - {str(e)}\n")
+
+                # 更新进度
+                progress_value = int((copied + failed) / total_files * 80)
+                self.progress.setValue(progress_value)
+                QApplication.processEvents()
+
+            # 删除多余的文件
+            deleted = 0
+            if self.check_delete.isChecked():
+                self.result_text.append("\n🗑️ 正在删除多余文件...\n")
+
+                try:
+                    if self.check_subfolders.isChecked():
+                        for root, dirs, files in os.walk(self.target_folder):
+                            for file in files:
+                                full_path = os.path.join(root, file)
+                                rel_path = os.path.relpath(
+                                    full_path, self.target_folder)
+                                if rel_path not in source_files:
+                                    try:
+                                        os.remove(full_path)
+                                        deleted += 1
+                                        self.result_text.append(
+                                            f"🗑️ 删除: {rel_path}\n")
+                                    except Exception as e:
+                                        self.result_text.append(
+                                            f"❌ 删除失败: {rel_path} - {str(e)}\n")
+                    else:
+                        for item in os.listdir(self.target_folder):
+                            full_path = os.path.join(self.target_folder, item)
+                            if os.path.isfile(full_path) and item not in source_files:
                                 try:
                                     os.remove(full_path)
                                     deleted += 1
-                                    self.result_text.append(
-                                        f"🗑️ 删除: {rel_path}\n")
+                                    self.result_text.append(f"🗑️ 删除: {item}\n")
                                 except Exception as e:
                                     self.result_text.append(
-                                        f"❌ 删除失败: {rel_path} - {str(e)}\n")
-                else:
-                    for item in os.listdir(self.target_folder):
-                        full_path = os.path.join(self.target_folder, item)
-                        if os.path.isfile(full_path) and item not in source_files:
-                            try:
-                                os.remove(full_path)
-                                deleted += 1
-                                self.result_text.append(f"🗑️ 删除: {item}\n")
-                            except Exception as e:
-                                self.result_text.append(
-                                    f"❌ 删除失败: {item} - {str(e)}\n")
-            except Exception as e:
-                self.result_text.append(f"❌ 删除过程出错：{str(e)}\n")
+                                        f"❌ 删除失败: {item} - {str(e)}\n")
+                except Exception as e:
+                    self.result_text.append(f"❌ 删除过程出错：{str(e)}\n")
 
-            self.progress.setValue(90)
+                self.progress.setValue(90)
 
-        self.progress.setValue(100)
+            self.progress.setValue(100)
 
-        # 显示完成信息
-        self.result_text.append("\n" + "=" * 60 + "\n")
-        self.result_text.append(f"✅ 同步完成！\n")
-        self.result_text.append(f"📁 复制/更新文件: {copied} 个\n")
-        if self.check_delete.isChecked():
-            self.result_text.append(f"🗑️ 删除文件: {deleted} 个\n")
-        if failed > 0:
-            self.result_text.append(f"❌ 失败: {failed} 个\n")
+            # 显示完成信息
+            self.result_text.append("\n" + "=" * 60 + "\n")
+            self.result_text.append(f"✅ 同步完成！\n")
+            self.result_text.append(f"📁 复制/更新文件: {copied} 个\n")
+            if self.check_delete.isChecked():
+                self.result_text.append(f"🗑️ 删除文件: {deleted} 个\n")
+            if failed > 0:
+                self.result_text.append(f"❌ 失败: {failed} 个\n")
+
+            QMessageBox.information(self, "完成", "文件夹同步完成！")
+
+        except Exception as e:
+            self.result_text.append(f"❌ 同步过程中发生错误：{str(e)}\n")
+            QMessageBox.critical(self, "错误", f"同步失败：{str(e)}")
 
         self.progress.setVisible(False)
         self.btn_sync.setEnabled(True)
         self.btn_preview.setEnabled(True)
-
-        QMessageBox.information(self, "完成", "文件夹同步完成！")
 
 
 # ========== 功能3：磁盘空间分析器 ==========
@@ -1380,15 +1393,15 @@ class DiskAnalyzerPage(QWidget):
 
             # 设置图标
             if os.path.isdir(file_path):
-                item.setIcon(0, self.style().standardIcon(QStyle.SP_DirIcon))
+                item.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
             else:
-                item.setIcon(0, self.style().standardIcon(QStyle.SP_FileIcon))
+                item.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
 
             # 设置状态颜色
             if is_system:
-                item.setForeground(3, QBrush(Qt.red))
+                item.setForeground(3, QBrush(QColor('red')))
             else:
-                item.setForeground(3, QBrush(Qt.green))
+                item.setForeground(3, QBrush(QColor('green')))
 
             self.file_list.addTopLevelItem(item)
 
@@ -4074,7 +4087,7 @@ class DocSplitPage(QWidget):
         self.btn_split.setEnabled(False)
         self.btn_split.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #FFB347;
                 color: white;
                 border: none;
                 padding: 8px 15px;
@@ -4083,7 +4096,7 @@ class DocSplitPage(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #FF9500;
             }
             QPushButton:disabled {
                 background-color: #ccc;
@@ -4532,17 +4545,23 @@ class DocSplitPage(QWidget):
 
 
 def main():
-    # 声明全局变量qApp，使其在整个模块中可用
     global qApp
-    # 创建QApplication实例，sys.argv是命令行参数列表
+
+    def exception_hook(exc_type, exc_value, exc_tb):
+        import traceback
+        error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        print(f"未捕获的异常:\n{error_msg}")
+        try:
+            QMessageBox.critical(None, "错误", f"程序发生错误：\n{str(exc_value)}")
+        except Exception:
+            pass
+
+    sys.excepthook = exception_hook
+
     app = QApplication(sys.argv)
-    # 将创建的QApplication实例赋值给全局变量qApp
     qApp = app
-    # 创建主窗口实例
     window = PupAideMainWindow()
-    # 显示主窗口
     window.show()
-    # 启动应用程序的事件循环，并在应用程序退出时返回状态码
     sys.exit(app.exec())
 
 
