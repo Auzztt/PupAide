@@ -1,5 +1,6 @@
 import re
-from datetime import datetime
+import json
+from datetime import datetime, date
 import openpyxl
 import io
 from reportlab.lib.pagesizes import A4
@@ -12,7 +13,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QTextEdit, QProgressBar, QGroupBox, QCheckBox,
                              QLineEdit, QSplitter, QTabWidget, QComboBox, QFormLayout,
                              QSlider, QColorDialog, QAbstractItemView, QSpinBox,
-                             QTreeWidget, QTreeWidgetItem, QHeaderView, QTableWidget, QTableWidgetItem, QStyle)
+                             QTreeWidget, QTreeWidgetItem, QHeaderView, QTableWidget, QTableWidgetItem, QStyle, QDialog)
 from PyQt6.QtGui import QBrush, QIcon, QColor
 import subprocess
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -187,14 +188,52 @@ class PupAideMainWindow(QMainWindow):
         left_layout.addWidget(self.nav_list)
 
         # 底部信息
-        info_label = QLabel("版本 1.2.0\n拖动右侧边缘可调整菜单宽度")
+        bottom_layout = QHBoxLayout()
+        info_label = QLabel("版本 1.2.0")
         info_font = QFont()
         info_font.setPointSize(13)
         info_label.setFont(info_font)
-        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info_label.setStyleSheet("color: #999; margin-top: 15px;")
+        info_label.setStyleSheet("color: #999;")
         info_label.setWordWrap(True)
-        left_layout.addWidget(info_label)
+        bottom_layout.addWidget(info_label)
+
+        btn_settings = QPushButton("···")
+        btn_settings.setObjectName("settingsBtn")
+        btn_settings.setFixedSize(36, 24)
+        btn_settings.setToolTip("神秘按钮")
+        btn_settings.clicked.connect(self._open_easter_egg_settings)
+        btn_settings_font = QFont()
+        btn_settings_font.setPointSize(12)
+        btn_settings_font.setBold(True)
+        btn_settings.setFont(btn_settings_font)
+        btn_settings.setStyleSheet("""
+            QPushButton#settingsBtn {
+                background-color: #f0f0f0;
+                color: #999;
+                border: 1px solid #ddd;
+                border-radius: 12px;
+                padding: 0px;
+                min-height: 0px;
+                font-weight: bold;
+            }
+            QPushButton#settingsBtn:hover {
+                color: #FFB347;
+                background-color: #fff3e0;
+                border-color: #FFB347;
+            }
+        """)
+        bottom_layout.addWidget(btn_settings)
+        bottom_layout.addStretch()
+        left_layout.addLayout(bottom_layout)
+
+        # tip_label = QLabel("拖动右侧边缘可调整菜单宽度")
+        # tip_font = QFont()
+        # tip_font.setPointSize(11)
+        # tip_label.setFont(tip_font)
+        # tip_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # tip_label.setStyleSheet("color: #bbb;")
+        # tip_label.setWordWrap(True)
+        # left_layout.addWidget(tip_label)
         left_layout.addStretch()
 
         # ========== 右侧内容区域 ==========
@@ -247,6 +286,15 @@ class PupAideMainWindow(QMainWindow):
             icon_path = os.path.join(os.path.dirname(
                 os.path.abspath(__file__)), 'dog.ico')
         self.setWindowIcon(QIcon(icon_path))
+
+        # 彩蛋系统
+        self.easter_egg_manager = EasterEggManager(self)
+        self.easter_egg_manager.on_app_start()
+
+    def _open_easter_egg_settings(self):
+        data = _load_easter_egg_data()
+        dlg = EasterEggSettingsDialog(self, data)
+        dlg.exec()
 
 
 # ========== 功能1：重复文件查找器 ==========
@@ -4542,6 +4590,528 @@ class DocSplitPage(QWidget):
             f"命名部分输入的变量个数与拆分后文件个数不匹配，请检查输入变量个数\n\n"
             f"拆分后文件数: {total_count}\n"
             f"已导入变量数: {len(self.input_names)}")
+
+
+try:
+    from lunarcalendar import Converter, Solar, Lunar
+    HAS_LUNARCALENDAR = True
+except ImportError:
+    HAS_LUNARCALENDAR = False
+
+
+# ========== 彩蛋系统 ==========
+EASTER_EGG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pup_aide_easter_eggs.json')
+
+HOLIDAYS = {
+    (1, 1): ("🎊 元旦快乐", "新的一年，会更爱你"),
+    (2, 14): ("💝 情人节快乐", "小狗常伴你左右！"),
+    (5, 1): ("🌻 劳动节到啦", "小宝辛苦了，记得好好休息！"),
+    (10, 1): ("🇨🇳 国庆快乐", "长假去哪玩！"),
+    (11, 11): ("😄 双十一买买买", "全场消费张总买单"),
+    (12, 25): ("🎄 圣诞啦", "圣诞老人给你送了只小狗来~"),
+    (12, 31): ("🎆 跨年快乐", "今年的最后一天，来张纪念照吧！"),
+}
+
+LUNAR_HOLIDAYS = {
+    (1, 1): ("🧧 新春快乐", "什么时候和小狗一起吃春节的饺子呀"),
+    (1, 15): ("🏮 元宵节快乐", "小狗给你买豆沙馅的元宵来啦~"),
+    (5, 5): ("🐉 端午安康", "豆沙和蜜枣，今年谁更胜一筹呢！"),
+    (7, 7): ("🌌 七夕快乐", "牛郎和织女见面了，我们也要见面啦！"),
+    (8, 15): ("🌕 中秋快乐", "小狗苦恼：月饼这个东西什么时候才能做的好吃一点"),
+}
+
+MILESTONES = {
+    1: ("🐕 欢迎使用小狗助理", "终于见面啦，希望小狗助理能成为你的好帮手！"),
+    52: ("🌟 52 次", "恭喜你触发521美餐一顿，快去凭截图找小狗兑换吧！"),
+    99: ("💖 99 次", "恭喜你触发长长久久套餐，凭截图可以找小狗兑换任意一个你喜欢的礼物！"),
+    1314: ("💕 1314 次", "恭喜你触发一生一世任务，小狗将带你出去旅游哦~"),
+    2000: ("🎯 2000 次", "恭喜你触发里程碑任务，需要带小狗吃一顿美食哦~"),
+    3000: ("🏆 3000 次", "恭喜你触发里程碑任务，需要带小狗出去玩哦~"),
+    5000: ("👑 5000 次", "恭喜你触发惊喜奖励，小狗将带你出去度！蜜！月！"),
+    10000: ("🌈 10000 次", "不可思议！你触发了传奇奖励！"),
+}
+
+
+def _load_easter_egg_data():
+    default = {
+        'open_count': 0,
+        'last_open_date': '',
+        'nickname': '',
+        'first_use_date': '',
+        'anniversary_start': '2021-08-26',
+        'birthday': '1997-08-26',
+        'lunar_birthday': [7, 24],
+        'shown_milestones': [],
+        'shown_holidays': [],
+        'shown_anniversary': [],
+        'consecutive_days': 0,
+        'last_consecutive_date': '',
+        'shown_consecutive': [],
+        'settings_discovered': False,
+    }
+    try:
+        if os.path.exists(EASTER_EGG_FILE):
+            with open(EASTER_EGG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            for k, v in default.items():
+                data.setdefault(k, v)
+            return data
+    except Exception:
+        pass
+    return default
+
+
+def _save_easter_egg_data(data):
+    try:
+        with open(EASTER_EGG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _lunar_to_solar(year, month, day):
+    if not HAS_LUNARCALENDAR:
+        return None
+    try:
+        lunar = Lunar(year, month, day, leap=False)
+        solar = Converter.lunar2solar(lunar)
+        return (solar.year, solar.month, solar.day)
+    except Exception:
+        return None
+
+
+class EasterEggDialog(QDialog):
+    def __init__(self, parent, title, message, emoji="🐕"):
+        super().__init__(parent)
+        self.setWindowTitle("小狗助理彩蛋")
+        self.setFixedSize(420, 280)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(30, 25, 30, 25)
+
+        emoji_label = QLabel(emoji)
+        emoji_font = QFont()
+        emoji_font.setPointSize(40)
+        emoji_label.setFont(emoji_font)
+        emoji_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(emoji_label)
+
+        title_label = QLabel(title)
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("color: #FF9500;")
+        layout.addWidget(title_label)
+
+        msg_label = QLabel(message)
+        msg_font = QFont()
+        msg_font.setPointSize(12)
+        msg_label.setFont(msg_font)
+        msg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        msg_label.setWordWrap(True)
+        msg_label.setStyleSheet("color: #555;")
+        layout.addWidget(msg_label)
+
+        btn = QPushButton("好哦")
+        btn.clicked.connect(self.accept)
+        btn.setFixedWidth(120)
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.setStyleSheet("""
+            QDialog {
+                background-color: white;
+                border-radius: 12px;
+            }
+        """)
+
+
+class EasterEggManager:
+    def __init__(self, parent_widget):
+        self.parent = parent_widget
+        self.data = _load_easter_egg_data()
+
+    def on_app_start(self):
+        today = date.today()
+        today_str = today.strftime('%Y-%m-%d')
+
+        # 首次使用，弹出登录对话框
+        if not self.data.get('nickname', ''):
+            dlg = FirstLoginDialog(self.parent)
+            if dlg.exec() == FirstLoginDialog.DialogCode.Accepted:
+                self.data['nickname'] = dlg.nickname
+                self.data['first_use_date'] = today_str
+            else:
+                self.data['nickname'] = '神秘人'
+                self.data['first_use_date'] = today_str
+
+        # 连续使用天数
+        if self.data['last_consecutive_date']:
+            last = date.fromisoformat(self.data['last_consecutive_date'])
+            diff = (today - last).days
+            if diff == 1:
+                self.data['consecutive_days'] += 1
+            elif diff > 1:
+                self.data['consecutive_days'] = 1
+        else:
+            self.data['consecutive_days'] = 1
+
+        self.data['open_count'] += 1
+        self.data['last_open_date'] = today_str
+        self.data['last_consecutive_date'] = today_str
+        _save_easter_egg_data(self.data)
+
+        # 延迟弹出，等窗口完全显示
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(800, self._check_all)
+
+    def _check_all(self):
+        self._check_anniversary()
+        self._check_holidays()
+        self._check_milestones()
+        self._check_birthday()
+        self._check_consecutive()
+
+    def _show_dialog(self, title, message, emoji="🐕"):
+        dlg = EasterEggDialog(self.parent, title, message, emoji)
+        dlg.exec()
+
+    def _check_anniversary(self):
+        today = date.today()
+        anni_str = self.data.get('anniversary_start', '')
+        if not anni_str:
+            return
+        try:
+            anni_date = date.fromisoformat(anni_str)
+        except Exception:
+            return
+
+        anni_month = anni_date.month
+        anni_day = anni_date.day
+        anni_year = anni_date.year
+        years_together = today.year - anni_year
+
+        if years_together <= 0:
+            return
+
+        anni_this_year = date(today.year, anni_month, anni_day)
+        shown = self.data.get('shown_anniversary', [])
+
+        if today == anni_this_year:
+            if str(years_together) not in shown:
+                self._show_dialog(
+                    "🎉 纪念日快乐",
+                    f"今天是你们在一起 {years_together} 年的纪念日！\n愿每一天都如初见般美好 🥰",
+                    "💕"
+                )
+                shown.append(str(years_together))
+                self.data['shown_anniversary'] = shown
+                _save_easter_egg_data(self.data)
+        elif today > anni_this_year:
+            if str(years_together) not in shown:
+                days_passed = (today - anni_this_year).days
+                self._show_dialog(
+                    "💕 纪念日补祝",
+                    f"{days_passed} 天前是你们在一起 {years_together} 年的纪念日，\n"
+                    f"当天你没有打开使用哦，\n希望你们已经度过了一个开心的纪念日 🌹",
+                    "🌹"
+                )
+                shown.append(str(years_together))
+                self.data['shown_anniversary'] = shown
+                _save_easter_egg_data(self.data)
+
+    def _check_holidays(self):
+        today = date.today()
+        today_key = today.strftime('%Y-%m-%d')
+        shown = self.data.get('shown_holidays', [])
+
+        if today_key in shown:
+            return
+
+        triggered = False
+
+        # 公历节日
+        solar_key = (today.month, today.day)
+        if solar_key in HOLIDAYS:
+            title, msg = HOLIDAYS[solar_key]
+            self._show_dialog(title, msg, "🎉")
+            triggered = True
+
+        # 农历节日
+        if HAS_LUNARCALENDAR and not triggered:
+            for (lm, ld), (title, msg) in LUNAR_HOLIDAYS.items():
+                result = _lunar_to_solar(today.year, lm, ld)
+                if result:
+                    sy, sm, sd = result
+                    if (sm, sd) == (today.month, today.day):
+                        self._show_dialog(title, msg, "🎉")
+                        triggered = True
+                        break
+
+        if triggered:
+            shown.append(today_key)
+            self.data['shown_holidays'] = shown
+            _save_easter_egg_data(self.data)
+
+    def _check_milestones(self):
+        count = self.data['open_count']
+        shown = self.data.get('shown_milestones', [])
+
+        if count in MILESTONES and count not in shown:
+            title, msg = MILESTONES[count]
+            self._show_dialog(title, f"你已经打开小狗助理 {count} 次了！\n{msg}", "🏆")
+            shown.append(count)
+            self.data['shown_milestones'] = shown
+            _save_easter_egg_data(self.data)
+
+    def _check_birthday(self):
+        today = date.today()
+        today_str = today.strftime('%Y-%m-%d')
+        shown = self.data.get('shown_holidays', [])
+
+        # 阳历生日
+        bday_str = self.data.get('birthday', '')
+        if bday_str:
+            try:
+                bday = date.fromisoformat(bday_str)
+                if today.month == bday.month and today.day == bday.day:
+                    if today_str + '_bday' not in shown:
+                        age = today.year - bday.year
+                        self._show_dialog(
+                            "🎂 生日快乐",
+                            f"今天是你的 {age} 岁生日！\n新的一岁，小狗会继续陪你过好每一天！",
+                            "🎂"
+                        )
+                        shown.append(today_str + '_bday')
+                        self.data['shown_holidays'] = shown
+                        _save_easter_egg_data(self.data)
+                        return
+            except Exception:
+                pass
+
+        # 农历生日
+        lunar_bday = self.data.get('lunar_birthday', [])
+        if lunar_bday and len(lunar_bday) == 2 and HAS_LUNARCALENDAR:
+            lm, ld = lunar_bday
+            result = _lunar_to_solar(today.year, lm, ld)
+            if result:
+                _, sm, sd = result
+                if (sm, sd) == (today.month, today.day):
+                    if today_str + '_lbday' not in shown:
+                        self._show_dialog(
+                            "🎂 农历生日快乐",
+                            "今天是你的农历生日！\n生日快乐哦，小宝~",
+                            "🎂"
+                        )
+                        shown.append(today_str + '_lbday')
+                        self.data['shown_holidays'] = shown
+                        _save_easter_egg_data(self.data)
+
+    def _check_consecutive(self):
+        days = self.data.get('consecutive_days', 0)
+        shown = self.data.get('shown_consecutive', [])
+
+        milestones = [7, 30, 100, 365]
+        for m in milestones:
+            if days == m and m not in shown:
+                msgs = {
+                    7: "已连续使用 7 天啦，有什么新需求就告诉小狗 💪",
+                    30: "连续使用 30 天啦！看来你已经是个熟练工了 🌟",
+                    100: "连续使用 100 天啦！你一定是个电脑高手了 🔥",
+                    365: "连续使用 365 天啦！看来小狗助理很有用！太棒啦！",
+                }
+                self._show_dialog("🔥 连续使用", msgs[m], "💪")
+                shown.append(m)
+                self.data['shown_consecutive'] = shown
+                _save_easter_egg_data(self.data)
+
+
+class FirstLoginDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("欢迎来到小狗助理")
+        self.setFixedSize(380, 240)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(30, 25, 30, 25)
+
+        title = QLabel("🐕 欢迎来到小狗助理！")
+        title_font = QFont()
+        title_font.setPointSize(18)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        title.setStyleSheet("color: #FF9500;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        hint = QLabel("给自己起个昵称吧")
+        hint_font = QFont()
+        hint_font.setPointSize(12)
+        hint.setFont(hint_font)
+        hint.setStyleSheet("color: #666;")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(hint)
+
+        self.nick_edit = QLineEdit()
+        self.nick_edit.setPlaceholderText("输入你的昵称...")
+        self.nick_edit.setMaxLength(20)
+        nick_font = QFont()
+        nick_font.setPointSize(14)
+        self.nick_edit.setFont(nick_font)
+        self.nick_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.nick_edit.returnPressed.connect(self._confirm)
+        layout.addWidget(self.nick_edit)
+
+        btn = QPushButton("开始使用 🐾")
+        btn.clicked.connect(self._confirm)
+        btn.setFixedWidth(160)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.setStyleSheet("""
+            QDialog { background-color: white; border-radius: 8px; }
+            QLineEdit { padding: 10px; border: 2px solid #FFB347; border-radius: 8px;
+                        min-height: 30px; font-size: 14px; }
+            QLineEdit:focus { border-color: #FF9500; }
+            QPushButton { background-color: #FFB347; color: white; border: none;
+                          padding: 8px 20px; border-radius: 6px; font-weight: bold;
+                          min-height: 32px; }
+            QPushButton:hover { background-color: #FF9500; }
+        """)
+
+    def _confirm(self):
+        nick = self.nick_edit.text().strip()
+        if not nick:
+            self.nick_edit.setStyleSheet(
+                self.nick_edit.styleSheet().replace(
+                    "border: 2px solid #FFB347;",
+                    "border: 2px solid red;"))
+            return
+        self.nickname = nick
+        self.accept()
+
+
+class EasterEggSettingsDialog(QDialog):
+    def __init__(self, parent, data):
+        super().__init__(parent)
+        self.data = data
+        self.setWindowTitle("神秘彩蛋")
+        self.setFixedSize(340, 240)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(25, 20, 25, 20)
+
+        title = QLabel("🐕 神秘彩蛋")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        title.setStyleSheet("color: #FF9500;")
+        layout.addWidget(title)
+
+        # 计算陪伴天数
+        first_str = data.get('first_use_date', '')
+        nickname = data.get('nickname', '')
+        try:
+            first_date = date.fromisoformat(first_str)
+            days = (date.today() - first_date).days
+        except Exception:
+            days = 0
+
+        info_font = QFont()
+        info_font.setPointSize(13)
+
+        name_text = f"{nickname}，" if nickname else ""
+        self.days_label = QLabel(f"{name_text}小狗助理已经陪伴你 {days} 天了 🐾")
+        self.days_label.setFont(info_font)
+        self.days_label.setStyleSheet("color: #555;")
+        layout.addWidget(self.days_label)
+
+        hint_label = QLabel("多多使用会有惊喜彩蛋哦 ✨")
+        hint_label.setFont(info_font)
+        hint_label.setStyleSheet("color: #FF9500;")
+        layout.addWidget(hint_label)
+
+        # 修改昵称
+        nick_layout = QHBoxLayout()
+        nick_label = QLabel("昵称:")
+        nick_label.setFont(info_font)
+        nick_label.setStyleSheet("color: #999;")
+        self.nick_edit = QLineEdit()
+        self.nick_edit.setText(nickname)
+        self.nick_edit.setMaxLength(20)
+        self.nick_edit.setFixedWidth(150)
+        nick_font = QFont()
+        nick_font.setPointSize(12)
+        self.nick_edit.setFont(nick_font)
+        btn_change = QPushButton("修改")
+        btn_change.setFixedWidth(60)
+        btn_change.clicked.connect(self._change_nickname)
+        nick_layout.addWidget(nick_label)
+        nick_layout.addWidget(self.nick_edit)
+        nick_layout.addWidget(btn_change)
+        nick_layout.addStretch()
+        layout.addLayout(nick_layout)
+
+        btn = QPushButton("知道啦～")
+        btn.clicked.connect(self.accept)
+        btn.setFixedWidth(120)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        self.setStyleSheet("""
+            QDialog { background-color: white; border-radius: 8px; }
+            QLineEdit { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; min-height: 24px; }
+            QPushButton { background-color: #FFB347; color: white; border: none;
+                          padding: 6px 15px; border-radius: 6px; font-weight: bold; }
+            QPushButton:hover { background-color: #FF9500; }
+        """)
+
+    def _change_nickname(self):
+        new_nick = self.nick_edit.text().strip()
+        if not new_nick:
+            return
+        self.data['nickname'] = new_nick
+        _save_easter_egg_data(self.data)
+        # 更新陪伴天数标签
+        first_str = self.data.get('first_use_date', '')
+        try:
+            first_date = date.fromisoformat(first_str)
+            days = (date.today() - first_date).days
+        except Exception:
+            days = 0
+        self.days_label.setText(f"{new_nick}，小狗助理已经陪伴你 {days} 天了 🐾")
 
 
 def main():
