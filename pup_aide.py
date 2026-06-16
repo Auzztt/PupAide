@@ -179,7 +179,8 @@ class PupAideMainWindow(QMainWindow):
             "📝 Word/Excel 批量替换",
             "🔍 OCR 文字识别工具",
             "✂️ 文件名称提取器",  # 0422新增功能
-            "📑 文档拆分工具"
+            "📑 文档拆分工具",
+            "🔁 文本重复识别"
         ]
         for func in functions:
             item = QListWidgetItem(func)
@@ -255,6 +256,7 @@ class PupAideMainWindow(QMainWindow):
         self.page_ocr = OCRPage()
         self.page_namecut = FileNameCut()  # 新增功能页面实例
         self.page_docsplit = DocSplitPage()  # 文档拆分页面实例
+        self.page_textdup = TextDuplicatePage()  # 文本重复识别页面实例
 
         self.right_panel.addWidget(self.page_duplicate)
         self.right_panel.addWidget(self.page_sync)
@@ -264,6 +266,7 @@ class PupAideMainWindow(QMainWindow):
         self.right_panel.addWidget(self.page_ocr)
         self.right_panel.addWidget(self.page_namecut)  # 新增功能页面添加到右侧面板
         self.right_panel.addWidget(self.page_docsplit)  # 文档拆分页面添加到右侧面板
+        self.right_panel.addWidget(self.page_textdup)  # 文本重复识别页面添加到右侧面板
 
         # 添加导航栏点击事件
         self.nav_list.currentRowChanged.connect(
@@ -3773,6 +3776,384 @@ class SplitWorker(QThread):
                     progress, f"已拆分: {output_name}.xlsx")
 
         return output_files
+
+
+# ========== 文本重复识别 ==========
+class TextDuplicatePage(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setup_ui()
+
+    def setup_ui(self):
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        from PyQt6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # 标题
+        title = QLabel("🔁 文本重复识别")
+        title_font = QFont()
+        title_font.setPointSize(22)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        layout.addWidget(title)
+
+        group_font = QFont()
+        group_font.setPointSize(15)
+
+        # ===== 输入区域 =====
+        input_group = QGroupBox("输入文本")
+        input_group.setFont(group_font)
+        input_layout = QVBoxLayout(input_group)
+
+        self.input_text = QTextEdit()
+        input_font = QFont()
+        input_font.setPointSize(12)
+        self.input_text.setFont(input_font)
+        self.input_text.setPlaceholderText("请粘贴或输入需要识别重复项的文本...\n\n示例：\n【北京市海淀区人民法院】被告人张三欠李四10000元【北京市海淀区人民法院】被告人李四欠王五30000【北京市海淀区人民法院】被告人张三欠李四10000元")
+        self.input_text.setMinimumHeight(150)
+        input_layout.addWidget(self.input_text)
+
+        layout.addWidget(input_group)
+
+        # ===== 选项区域 =====
+        option_group = QGroupBox("识别选项")
+        option_group.setFont(group_font)
+        option_layout = QVBoxLayout(option_group)
+
+        # 最小重复长度
+        len_layout = QHBoxLayout()
+        len_label = QLabel("最小重复长度：")
+        len_label_font = QFont()
+        len_label_font.setPointSize(12)
+        len_label.setFont(len_label_font)
+        self.min_len_spin = QSpinBox()
+        self.min_len_spin.setRange(2, 500)
+        self.min_len_spin.setValue(6)
+        self.min_len_spin.setSuffix(" 个字符")
+        self.min_len_spin.setToolTip("短于此长度的重复片段将被忽略")
+        len_layout.addWidget(len_label)
+        len_layout.addWidget(self.min_len_spin)
+        len_layout.addStretch()
+        option_layout.addLayout(len_layout)
+
+        layout.addWidget(option_group)
+
+        # ===== 按钮区域 =====
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(15)
+
+        self.btn_analyze = QPushButton("🔍 识别重复项")
+        self.btn_analyze.setMinimumWidth(130)
+        self.btn_analyze.clicked.connect(self.analyze_duplicates)
+        self.btn_analyze.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
+
+        self.btn_extract_unique = QPushButton("📋 提取非重复部分")
+        self.btn_extract_unique.setMinimumWidth(140)
+        self.btn_extract_unique.clicked.connect(self.extract_unique)
+        self.btn_extract_unique.setEnabled(False)
+
+        self.btn_extract_dup = QPushButton("📋 提取重复部分")
+        self.btn_extract_dup.setMinimumWidth(130)
+        self.btn_extract_dup.clicked.connect(self.extract_duplicate)
+        self.btn_extract_dup.setEnabled(False)
+
+        self.btn_extract_dedup = QPushButton("📋 提取去重后文本")
+        self.btn_extract_dedup.setMinimumWidth(140)
+        self.btn_extract_dedup.clicked.connect(self.extract_deduplicated)
+        self.btn_extract_dedup.setEnabled(False)
+
+        self.btn_clear = QPushButton("🗑️ 清空")
+        self.btn_clear.setMinimumWidth(90)
+        self.btn_clear.clicked.connect(self.clear_all)
+
+        button_layout.addWidget(self.btn_analyze)
+        button_layout.addWidget(self.btn_extract_unique)
+        button_layout.addWidget(self.btn_extract_dup)
+        button_layout.addWidget(self.btn_extract_dedup)
+        button_layout.addWidget(self.btn_clear)
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        # ===== 识别结果区域 =====
+        result_group = QGroupBox("识别结果")
+        result_group.setFont(group_font)
+        result_layout = QVBoxLayout(result_group)
+
+        self.result_text = QTextEdit()
+        self.result_text.setFont(input_font)
+        self.result_text.setReadOnly(True)
+        self.result_text.setMinimumHeight(200)
+        result_layout.addWidget(self.result_text)
+
+        layout.addWidget(result_group)
+
+        # ===== 输出区域 =====
+        output_group = QGroupBox("输出结果")
+        output_group.setFont(group_font)
+        output_layout = QVBoxLayout(output_group)
+
+        self.output_text = QTextEdit()
+        self.output_text.setFont(input_font)
+        self.output_text.setReadOnly(True)
+        self.output_text.setMinimumHeight(150)
+        output_layout.addWidget(self.output_text)
+
+        # 复制按钮
+        copy_layout = QHBoxLayout()
+        self.btn_copy = QPushButton("📋 复制输出结果")
+        self.btn_copy.clicked.connect(self.copy_output)
+        self.btn_copy.setEnabled(False)
+        copy_layout.addStretch()
+        copy_layout.addWidget(self.btn_copy)
+        output_layout.addLayout(copy_layout)
+
+        layout.addWidget(output_group)
+        layout.addStretch()
+
+        scroll.setWidget(container)
+        outer_layout.addWidget(scroll)
+
+        # 存储分析结果
+        self.duplicate_segments = []  # [(segment, count, positions)]
+        self.unique_text = ""
+        self.dup_only_text = ""
+        self.dedup_text = ""
+
+    def find_duplicate_segments(self, text, min_len):
+        """使用后缀数组思想找出文本中所有重复出现的子串"""
+        n = len(text)
+        if n < min_len:
+            return []
+
+        # 构建后缀数组（对起始位置排序）
+        suffixes = list(range(n))
+        suffixes.sort(key=lambda i: text[i:])
+
+        duplicates = {}  # segment -> [start_positions]
+
+        # 比较相邻后缀，找最长公共前缀
+        for i in range(len(suffixes) - 1):
+            s1 = suffixes[i]
+            s2 = suffixes[i + 1]
+            # 计算最长公共前缀
+            lcp_len = 0
+            max_lcp = min(n - s1, n - s2)
+            while lcp_len < max_lcp and text[s1 + lcp_len] == text[s2 + lcp_len]:
+                lcp_len += 1
+
+            if lcp_len >= min_len:
+                # 找到所有长度 >= min_len 的公共子串
+                for length in range(min_len, lcp_len + 1):
+                    segment = text[s1:s1 + length]
+                    # 过滤纯空白或纯标点的片段
+                    stripped = segment.strip()
+                    if not stripped or len(stripped) < min_len // 2:
+                        continue
+                    if segment not in duplicates:
+                        duplicates[segment] = set()
+                    duplicates[segment].add(s1)
+                    duplicates[segment].add(s2)
+
+        # 进一步收集：对于每个已发现的重复片段，在全文中搜索所有出现位置
+        final_duplicates = {}
+        for segment, positions in duplicates.items():
+            # 在全文中搜索所有出现
+            all_positions = set()
+            start = 0
+            while True:
+                idx = text.find(segment, start)
+                if idx == -1:
+                    break
+                all_positions.add(idx)
+                start = idx + 1
+            if len(all_positions) >= 2:
+                if segment not in final_duplicates or len(segment) > len(final_duplicates.get(segment, '')):
+                    final_duplicates[segment] = all_positions
+
+        # 去除被更长片段完全包含的短片段
+        segments = sorted(final_duplicates.keys(), key=len, reverse=True)
+        result = []
+        covered_positions = {}  # segment -> set of position ranges
+
+        for seg in segments:
+            positions = final_duplicates[seg]
+            # 检查该片段是否已被更长的片段覆盖
+            is_covered = False
+            for longer_seg, longer_positions in result:
+                for lp in longer_positions:
+                    for sp in positions:
+                        if lp <= sp and sp + len(seg) <= lp + len(longer_seg):
+                            is_covered = True
+                            break
+                    if is_covered:
+                        break
+                if is_covered:
+                    break
+            if not is_covered:
+                result.append((seg, len(positions), sorted(positions)))
+
+        # 按首次出现位置排序
+        result.sort(key=lambda x: x[2][0])
+        return result
+
+    def analyze_duplicates(self):
+        text = self.input_text.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "提示", "请先输入文本！")
+            return
+
+        min_len = self.min_len_spin.value()
+
+        self.result_text.clear()
+        self.output_text.clear()
+        self.result_text.append("🔍 正在分析文本中的重复片段...\n")
+        QApplication.processEvents()
+
+        self.duplicate_segments = self.find_duplicate_segments(text, min_len)
+
+        if not self.duplicate_segments:
+            self.result_text.append("✅ 未发现重复片段\n")
+            self.btn_extract_unique.setEnabled(False)
+            self.btn_extract_dup.setEnabled(False)
+            self.btn_extract_dedup.setEnabled(False)
+            self.btn_copy.setEnabled(False)
+            return
+
+        self.result_text.append(f"发现 {len(self.duplicate_segments)} 个重复片段：\n")
+        self.result_text.append("=" * 50 + "\n\n")
+
+        # 标记重复位置用于高亮
+        dup_positions = set()  # (start, end) 所有重复片段的位置
+
+        for i, (segment, count, positions) in enumerate(self.duplicate_segments, 1):
+            display_seg = segment if len(segment) <= 80 else segment[:77] + "..."
+            self.result_text.append(f"📌 重复片段 {i}：\n")
+            self.result_text.append(f"   内容：{display_seg}\n")
+            self.result_text.append(f"   出现次数：{count} 次\n")
+            self.result_text.append(f"   位置：{', '.join(f'第{p+1}字符' for p in positions)}\n\n")
+
+            for p in positions:
+                dup_positions.add((p, p + len(segment)))
+
+        # 计算非重复部分和重复部分
+        # 标记所有被重复片段覆盖的字符位置
+        covered = set()
+        for start, end in dup_positions:
+            for pos in range(start, end):
+                covered.add(pos)
+
+        # 非重复部分：未被任何重复片段覆盖的字符
+        unique_chars = []
+        for i, ch in enumerate(text):
+            if i not in covered:
+                unique_chars.append(ch)
+        self.unique_text = ''.join(unique_chars)
+
+        # 重复部分：所有重复片段（去重后）
+        dup_segments_set = []
+        seen = set()
+        for segment, count, positions in self.duplicate_segments:
+            if segment not in seen:
+                seen.add(segment)
+                dup_segments_set.append(segment)
+        self.dup_only_text = '\n---\n'.join(dup_segments_set)
+
+        # 去重后文本：保留每个重复片段的首次出现，移除后续重复
+        # 收集所有需要移除的区间（第2次及之后的重复出现）
+        remove_ranges = []
+        for segment, count, positions in self.duplicate_segments:
+            for p in positions[1:]:  # 跳过首次出现，移除后续出现
+                remove_ranges.append((p, p + len(segment)))
+        # 按起始位置排序
+        remove_ranges.sort()
+        # 合并重叠区间
+        merged = []
+        for start, end in remove_ranges:
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        remove_set = set()
+        for start, end in merged:
+            for pos in range(start, end):
+                remove_set.add(pos)
+        dedup_chars = []
+        for i, ch in enumerate(text):
+            if i not in remove_set:
+                dedup_chars.append(ch)
+        self.dedup_text = ''.join(dedup_chars)
+
+        self.btn_extract_unique.setEnabled(True)
+        self.btn_extract_dup.setEnabled(True)
+        self.btn_extract_dedup.setEnabled(True)
+
+    def extract_unique(self):
+        if not self.unique_text and not self.duplicate_segments:
+            QMessageBox.warning(self, "提示", "请先进行识别！")
+            return
+        self.output_text.clear()
+        self.output_text.setPlainText(self.unique_text)
+        self.btn_copy.setEnabled(True)
+
+    def extract_duplicate(self):
+        if not self.dup_only_text and not self.duplicate_segments:
+            QMessageBox.warning(self, "提示", "请先进行识别！")
+            return
+        self.output_text.clear()
+        self.output_text.setPlainText(self.dup_only_text)
+        self.btn_copy.setEnabled(True)
+
+    def extract_deduplicated(self):
+        if not self.dedup_text and not self.duplicate_segments:
+            QMessageBox.warning(self, "提示", "请先进行识别！")
+            return
+        self.output_text.clear()
+        self.output_text.setPlainText(self.dedup_text)
+        self.btn_copy.setEnabled(True)
+
+    def copy_output(self):
+        text = self.output_text.toPlainText()
+        if text:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(text)
+            self.btn_copy.setText("✅ 已复制")
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(1500, lambda: self.btn_copy.setText("📋 复制输出结果"))
+
+    def clear_all(self):
+        self.input_text.clear()
+        self.result_text.clear()
+        self.output_text.clear()
+        self.duplicate_segments = []
+        self.unique_text = ""
+        self.dup_only_text = ""
+        self.dedup_text = ""
+        self.btn_extract_unique.setEnabled(False)
+        self.btn_extract_dup.setEnabled(False)
+        self.btn_extract_dedup.setEnabled(False)
+        self.btn_copy.setEnabled(False)
 
 
 class DocSplitPage(QWidget):
