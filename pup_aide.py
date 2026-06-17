@@ -3873,20 +3873,88 @@ class TextDuplicatePage(QWidget):
         self.btn_extract_unique.setMinimumWidth(140)
         self.btn_extract_unique.clicked.connect(self.extract_unique)
         self.btn_extract_unique.setEnabled(False)
+        self.btn_extract_unique.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+                color: #999;
+            }
+        """)
 
         self.btn_extract_dup = QPushButton("📋 提取重复部分")
         self.btn_extract_dup.setMinimumWidth(130)
         self.btn_extract_dup.clicked.connect(self.extract_duplicate)
         self.btn_extract_dup.setEnabled(False)
+        self.btn_extract_dup.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+                color: #999;
+            }
+        """)
 
         self.btn_extract_dedup = QPushButton("📋 提取去重后文本")
         self.btn_extract_dedup.setMinimumWidth(140)
         self.btn_extract_dedup.clicked.connect(self.extract_deduplicated)
         self.btn_extract_dedup.setEnabled(False)
+        self.btn_extract_dedup.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+                color: #999;
+            }
+        """)
 
         self.btn_clear = QPushButton("🗑️ 清空")
         self.btn_clear.setMinimumWidth(90)
         self.btn_clear.clicked.connect(self.clear_all)
+        self.btn_clear.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+        """)
 
         button_layout.addWidget(self.btn_analyze)
         button_layout.addWidget(self.btn_extract_unique)
@@ -3925,6 +3993,24 @@ class TextDuplicatePage(QWidget):
         self.btn_copy = QPushButton("📋 复制输出结果")
         self.btn_copy.clicked.connect(self.copy_output)
         self.btn_copy.setEnabled(False)
+        self.btn_copy.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FF9500;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+                color: #999;
+            }
+        """)
         copy_layout.addStretch()
         copy_layout.addWidget(self.btn_copy)
         output_layout.addLayout(copy_layout)
@@ -4001,7 +4087,7 @@ class TextDuplicatePage(QWidget):
             positions = final_duplicates[seg]
             # 检查该片段是否已被更长的片段覆盖
             is_covered = False
-            for longer_seg, longer_positions in result:
+            for longer_seg, _, longer_positions in result:
                 for lp in longer_positions:
                     for sp in positions:
                         if lp <= sp and sp + len(seg) <= lp + len(longer_seg):
