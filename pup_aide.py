@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 import hashlib
+import shutil
 from PyQt6.QtCore import Qt
 from PyQt6.QtCore import QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QFont
@@ -108,10 +109,6 @@ class PupAideMainWindow(QMainWindow):
                 border-radius: 6px;
                 min-height: 30px;
             }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
             QProgressBar {
                 border: 1px solid #ddd;
                 border-radius: 6px;
@@ -176,7 +173,7 @@ class PupAideMainWindow(QMainWindow):
             "🔄 文件夹同步/备份",
             "💾 磁盘空间分析器",
             "📄 PDF 批量处理",
-            "📝 Word/Excel 批量替换",
+            "📂 文件批量处理",
             "🔍 OCR 文字识别工具",
             "✂️ 文件名称提取器",  # 0422新增功能
             "📑 文档拆分工具",
@@ -373,16 +370,6 @@ class DuplicateFilePage(QWidget):
         check_font.setPointSize(12)
         self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(True)
-        # 强制只调整大小，不影响默认勾选图标
-        self.check_subfolders.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         option_layout.addWidget(self.check_subfolders)
         layout.addWidget(option_group)
@@ -689,45 +676,18 @@ class SyncBackupPage(QWidget):
         check_font.setPointSize(12)
         self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(True)
-        self.check_subfolders.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         self.check_overwrite = QCheckBox("覆盖已存在的文件")
         check_font = QFont()
         check_font.setPointSize(12)
         self.check_overwrite.setFont(check_font)
         self.check_overwrite.setChecked(True)
-        self.check_overwrite.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         self.check_delete = QCheckBox("删除目标文件夹中多余的文件（保持完全一致）")
         check_font = QFont()
         check_font.setPointSize(12)
         self.check_delete.setFont(check_font)
         self.check_delete.setChecked(False)
-        self.check_delete.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         option_layout.addWidget(self.check_subfolders)
         option_layout.addWidget(self.check_overwrite)
@@ -1160,30 +1120,12 @@ class DiskAnalyzerPage(QWidget):
         check_font.setPointSize(12)
         self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(True)
-        self.check_subfolders.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         self.check_large_files = QCheckBox("显示大文件列表 (大于100MB)")
         check_font = QFont()
         check_font.setPointSize(12)
         self.check_large_files.setFont(check_font)
         self.check_large_files.setChecked(True)
-        self.check_large_files.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         option_layout.addWidget(self.check_subfolders)
         option_layout.addWidget(self.check_large_files)
@@ -2768,28 +2710,500 @@ class PDFBatchPage(QWidget):
         return pages
 
 
-# ========== 功能5：Word/Excel 批量替换与生成 ==========
+# ========== 功能5：文件批量处理 ==========
 class OfficeBatchPage(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        label = QLabel("📝 Word/Excel 批量替换与生成")
+        layout.setSpacing(15)
+
+        title = QLabel("📂 文件批量处理")
         title_font = QFont()
         title_font.setPointSize(22)
         title_font.setBold(True)
-        label.setFont(title_font)
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet("color: #666;")
-        layout.addWidget(label)
+        title.setFont(title_font)
+        layout.addWidget(title)
 
-        info = QLabel("此功能正在开发中，敬请期待...")
-        info_font = QFont()
-        info_font.setPointSize(14)
-        info.setFont(info_font)
-        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info.setStyleSheet("color: #999; margin-top: 20px;")
-        layout.addWidget(info)
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 10px;
+                background-color: white;
+            }
+            QTabBar::tab {
+                padding: 8px 20px;
+                margin-right: 4px;
+                border: 1px solid #ddd;
+                border-bottom: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                background-color: #f5f5f5;
+                font-size: 12pt;
+                font-weight: bold;
+                color: #666;
+            }
+            QTabBar::tab:selected {
+                background-color: #FFB347;
+                color: white;
+                border-color: #FFB347;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #ffe4b5;
+            }
+        """)
+
+        self.filter_tab = QWidget()
+        self.setup_filter_tab()
+        self.tab_widget.addTab(self.filter_tab, "🔍 批量筛选文件")
+
+        layout.addWidget(self.tab_widget)
+
+    def setup_filter_tab(self):
+        layout = QVBoxLayout(self.filter_tab)
+        layout.setSpacing(15)
+
+        group_font = QFont()
+        group_font.setPointSize(13)
+
+        file_group = QGroupBox("待筛选文件")
+        file_group.setFont(group_font)
+        file_layout = QVBoxLayout(file_group)
+
+        hint_label = QLabel("点击「添加文件」或将文件拖入下方列表")
+        hint_label.setStyleSheet("color: #999; font-size: 10pt;")
+        file_layout.addWidget(hint_label)
+
+        self.file_list = DropFileListWidget()
+        self.file_list.files_added.connect(self.on_files_added)
+        self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.file_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 5px;
+                background-color: white;
+                min-height: 150px;
+            }
+            QListWidget::item {
+                padding: 6px 10px;
+                border-radius: 4px;
+            }
+            QListWidget::item:selected {
+                background-color: #FFE4B5;
+                color: #333;
+            }
+        """)
+        file_layout.addWidget(self.file_list)
+
+        file_btn_layout = QHBoxLayout()
+        self.btn_add_files = QPushButton("➕ 添加文件")
+        self.btn_add_files.clicked.connect(self.add_files)
+        self.btn_remove_files = QPushButton("🗑️ 移除选中")
+        self.btn_remove_files.clicked.connect(self.remove_selected_files)
+        self.btn_clear_files = QPushButton("🧹 清空列表")
+        self.btn_clear_files.clicked.connect(self.clear_files)
+        for btn in [self.btn_add_files, self.btn_remove_files, self.btn_clear_files]:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FFB347;
+                    color: white;
+                    border: none;
+                    padding: 8px 15px;
+                    border-radius: 6px;
+                    min-height: 30px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #FF9500;
+                }
+            """)
+        file_btn_layout.addWidget(self.btn_add_files)
+        file_btn_layout.addWidget(self.btn_remove_files)
+        file_btn_layout.addWidget(self.btn_clear_files)
+        file_btn_layout.addStretch()
+        self.file_count_label = QLabel("共 0 个文件")
+        self.file_count_label.setStyleSheet("color: #666; font-weight: bold;")
+        file_btn_layout.addWidget(self.file_count_label)
+        file_layout.addLayout(file_btn_layout)
+
+        layout.addWidget(file_group)
+
+        name_group = QGroupBox("筛选名单")
+        name_group.setFont(group_font)
+        name_layout = QVBoxLayout(name_group)
+
+        name_hint = QLabel("输入需要筛选的文件名（每行一个，支持带或不带扩展名）")
+        name_hint.setStyleSheet("color: #999; font-size: 10pt;")
+        name_layout.addWidget(name_hint)
+
+        self.name_text = QTextEdit()
+        self.name_text.setPlaceholderText("例如：\n文件1.pdf\n文件2\n报告.docx")
+        self.name_text.setStyleSheet("""
+            QTextEdit {
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 8px;
+                background-color: white;
+                min-height: 100px;
+            }
+        """)
+        name_layout.addWidget(self.name_text)
+
+        name_btn_layout = QHBoxLayout()
+        self.btn_load_names = QPushButton("📄 从文件导入名单")
+        self.btn_load_names.clicked.connect(self.load_names_from_file)
+        self.btn_clear_names = QPushButton("🧹 清空名单")
+        self.btn_clear_names.clicked.connect(lambda: self.name_text.clear())
+        for btn in [self.btn_load_names, self.btn_clear_names]:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FFB347;
+                    color: white;
+                    border: none;
+                    padding: 8px 15px;
+                    border-radius: 6px;
+                    min-height: 30px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #FF9500;
+                }
+            """)
+        name_btn_layout.addWidget(self.btn_load_names)
+        name_btn_layout.addWidget(self.btn_clear_names)
+        name_btn_layout.addStretch()
+        self.name_count_label = QLabel("共 0 个名称")
+        self.name_count_label.setStyleSheet("color: #666; font-weight: bold;")
+        name_btn_layout.addWidget(self.name_count_label)
+        name_layout.addLayout(name_btn_layout)
+
+        self.name_text.textChanged.connect(self.update_name_count)
+
+        layout.addWidget(name_group)
+
+        option_group = QGroupBox("筛选选项")
+        option_group.setFont(group_font)
+        option_layout = QHBoxLayout(option_group)
+
+        self.check_match_ext = QCheckBox("精确匹配扩展名")
+        self.check_match_ext.setChecked(True)
+        option_layout.addWidget(self.check_match_ext)
+
+        self.check_case_sensitive = QCheckBox("区分大小写")
+        self.check_case_sensitive.setChecked(False)
+        option_layout.addWidget(self.check_case_sensitive)
+
+        option_layout.addStretch()
+        layout.addWidget(option_group)
+
+        action_layout = QHBoxLayout()
+        self.btn_filter = QPushButton("🔍 开始筛选")
+        self.btn_filter.setMinimumWidth(150)
+        self.btn_filter.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 10px 25px;
+                border-radius: 6px;
+                min-height: 35px;
+                font-weight: bold;
+                font-size: 13pt;
+            }
+            QPushButton:hover { background-color: #FF9500; }
+        """)
+        self.btn_filter.clicked.connect(self.filter_files)
+        action_layout.addStretch()
+        action_layout.addWidget(self.btn_filter)
+        action_layout.addStretch()
+        layout.addLayout(action_layout)
+
+        result_group = QGroupBox("筛选结果")
+        result_group.setFont(group_font)
+        result_layout = QVBoxLayout(result_group)
+
+        self.result_info = QLabel("请先添加文件和筛选名单，然后点击「开始筛选」")
+        self.result_info.setStyleSheet("color: #666; font-size: 11pt; padding: 5px;")
+        result_layout.addWidget(self.result_info)
+
+        self.result_list = QListWidget()
+        self.result_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.result_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 5px;
+                background-color: white;
+                min-height: 120px;
+            }
+            QListWidget::item {
+                padding: 6px 10px;
+                border-radius: 4px;
+            }
+            QListWidget::item:selected {
+                background-color: #C8E6C9;
+                color: #333;
+            }
+        """)
+        result_layout.addWidget(self.result_list)
+
+        result_btn_layout = QHBoxLayout()
+        self.btn_copy_selected = QPushButton("📋 复制选中文件到...")
+        self.btn_copy_selected.clicked.connect(self.copy_selected_files)
+        self.btn_copy_all = QPushButton("📁 复制全部筛选结果到...")
+        self.btn_copy_all.clicked.connect(self.copy_all_filtered)
+        for btn in [self.btn_copy_selected, self.btn_copy_all]:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FFB347;
+                    color: white;
+                    border: none;
+                    padding: 8px 15px;
+                    border-radius: 6px;
+                    min-height: 30px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #FF9500;
+                }
+            """)
+        result_btn_layout.addWidget(self.btn_copy_selected)
+        result_btn_layout.addWidget(self.btn_copy_all)
+        result_btn_layout.addStretch()
+        result_layout.addLayout(result_btn_layout)
+
+        layout.addWidget(result_group)
+
+        self.filtered_files = []
+
+    def on_files_added(self, file_paths):
+        for fp in file_paths:
+            if os.path.isfile(fp):
+                name = os.path.basename(fp)
+                exists = False
+                for i in range(self.file_list.count()):
+                    if self.file_list.item(i).data(Qt.ItemDataRole.UserRole) == fp:
+                        exists = True
+                        break
+                if not exists:
+                    item = QListWidgetItem(f"📄 {name}")
+                    item.setData(Qt.ItemDataRole.UserRole, fp)
+                    item.setToolTip(fp)
+                    self.file_list.addItem(item)
+        self.update_file_count()
+
+    def add_files(self):
+        files, _ = QFileDialog.getOpenFileNames(self, "选择文件", "", "所有文件 (*.*)")
+        if files:
+            self.on_files_added(files)
+
+    def remove_selected_files(self):
+        for item in self.file_list.selectedItems():
+            self.file_list.takeItem(self.file_list.row(item))
+        self.update_file_count()
+
+    def clear_files(self):
+        self.file_list.clear()
+        self.update_file_count()
+
+    def update_file_count(self):
+        self.file_count_label.setText(f"共 {self.file_list.count()} 个文件")
+
+    def update_name_count(self):
+        text = self.name_text.toPlainText().strip()
+        if not text:
+            self.name_count_label.setText("共 0 个名称")
+            return
+        names = [line.strip() for line in text.split('\n') if line.strip()]
+        self.name_count_label.setText(f"共 {len(names)} 个名称")
+
+    def load_names_from_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择名单文件", "", "文本文件 (*.txt);;所有文件 (*.*)")
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                self.name_text.setPlainText(content)
+            except UnicodeDecodeError:
+                with open(file_path, 'r', encoding='gbk') as f:
+                    content = f.read()
+                self.name_text.setPlainText(content)
+
+    def filter_files(self):
+        if self.file_list.count() == 0:
+            QMessageBox.warning(self, "提示", "请先添加待筛选的文件！")
+            return
+
+        name_text = self.name_text.toPlainText().strip()
+        if not name_text:
+            QMessageBox.warning(self, "提示", "请先输入筛选名单！")
+            return
+
+        match_ext = self.check_match_ext.isChecked()
+        case_sensitive = self.check_case_sensitive.isChecked()
+
+        names = [line.strip() for line in name_text.split('\n') if line.strip()]
+        name_set = set()
+        for name in names:
+            if case_sensitive:
+                name_set.add(name)
+            else:
+                name_set.add(name.lower())
+
+        self.filtered_files = []
+        self.result_list.clear()
+
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            file_path = item.data(Qt.ItemDataRole.UserRole)
+            file_name = os.path.basename(file_path)
+
+            if match_ext:
+                compare_name = file_name
+            else:
+                compare_name = os.path.splitext(file_name)[0]
+
+            if not case_sensitive:
+                compare_name = compare_name.lower()
+
+            if compare_name in name_set:
+                self.filtered_files.append(file_path)
+                result_item = QListWidgetItem(f"✅ {file_name}")
+                result_item.setData(Qt.ItemDataRole.UserRole, file_path)
+                result_item.setToolTip(file_path)
+                self.result_list.addItem(result_item)
+
+        not_found = []
+        for name in names:
+            found = False
+            for fp in self.filtered_files:
+                fname = os.path.basename(fp)
+                if match_ext:
+                    cname = fname
+                else:
+                    cname = os.path.splitext(fname)[0]
+                if not case_sensitive:
+                    cname = cname.lower()
+                    target = name.lower()
+                else:
+                    cname = cname
+                    target = name
+                if cname == target:
+                    found = True
+                    break
+            if not found:
+                not_found.append(name)
+
+        if not_found:
+            self.result_info.setText(
+                f"找到 <span style='color:#4CAF50;font-weight:bold;'>{len(self.filtered_files)}</span> 个匹配文件，"
+                f"<span style='color:#f44336;font-weight:bold;'>{len(not_found)}</span> 个未找到"
+            )
+            for nf in not_found:
+                miss_item = QListWidgetItem(f"❌ 未找到: {nf}")
+                miss_item.setForeground(QColor("#f44336"))
+                self.result_list.addItem(miss_item)
+        else:
+            self.result_info.setText(
+                f"找到 <span style='color:#4CAF50;font-weight:bold;'>{len(self.filtered_files)}</span> 个匹配文件，全部匹配成功！"
+            )
+
+    def copy_selected_files(self):
+        selected = self.result_list.selectedItems()
+        files_to_copy = []
+        for item in selected:
+            fp = item.data(Qt.ItemDataRole.UserRole)
+            if fp and os.path.isfile(fp):
+                files_to_copy.append(fp)
+
+        if not files_to_copy:
+            QMessageBox.warning(self, "提示", "请先在筛选结果中选择要复制的文件！")
+            return
+
+        dest_dir = QFileDialog.getExistingDirectory(self, "选择目标文件夹")
+        if not dest_dir:
+            return
+
+        success = 0
+        errors = []
+        for fp in files_to_copy:
+            try:
+                shutil.copy2(fp, os.path.join(dest_dir, os.path.basename(fp)))
+                success += 1
+            except Exception as e:
+                errors.append(f"{os.path.basename(fp)}: {str(e)}")
+
+        msg = f"成功复制 {success} 个文件"
+        if errors:
+            msg += f"\n失败 {len(errors)} 个：\n" + "\n".join(errors[:5])
+            if len(errors) > 5:
+                msg += f"\n... 还有 {len(errors)-5} 个"
+            QMessageBox.warning(self, "部分文件复制失败", msg)
+        else:
+            QMessageBox.information(self, "完成", msg)
+
+    def copy_all_filtered(self):
+        if not self.filtered_files:
+            QMessageBox.warning(self, "提示", "没有可复制的筛选结果！")
+            return
+
+        dest_dir = QFileDialog.getExistingDirectory(self, "选择目标文件夹")
+        if not dest_dir:
+            return
+
+        success = 0
+        errors = []
+        for fp in self.filtered_files:
+            try:
+                shutil.copy2(fp, os.path.join(dest_dir, os.path.basename(fp)))
+                success += 1
+            except Exception as e:
+                errors.append(f"{os.path.basename(fp)}: {str(e)}")
+
+        msg = f"成功复制 {success} 个文件"
+        if errors:
+            msg += f"\n失败 {len(errors)} 个：\n" + "\n".join(errors[:5])
+            if len(errors) > 5:
+                msg += f"\n... 还有 {len(errors)-5} 个"
+            QMessageBox.warning(self, "部分文件复制失败", msg)
+        else:
+            QMessageBox.information(self, "完成", msg)
+
+
+class DropFileListWidget(QListWidget):
+    files_added = pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            file_paths = []
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    file_paths.append(url.toLocalFile())
+            if file_paths:
+                self.files_added.emit(file_paths)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
 
 # ========== 功能6：文件名称提取器 ==========
@@ -2857,15 +3271,6 @@ class FileNameCut(QWidget):
         check_font.setPointSize(12)
         self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(False)
-        self.check_subfolders.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
         folder_layout.addWidget(self.check_subfolders)
 
         # 排除文件后缀选项
@@ -2874,15 +3279,6 @@ class FileNameCut(QWidget):
         check_font2.setPointSize(12)
         self.check_no_ext.setFont(check_font2)
         self.check_no_ext.setChecked(True)
-        self.check_no_ext.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
         folder_layout.addWidget(self.check_no_ext)
 
         layout.addWidget(folder_group)
@@ -4570,10 +4966,6 @@ class DocSplitPage(QWidget):
         check_font.setPointSize(12)
         self.check_auto_open.setFont(check_font)
         self.check_auto_open.setChecked(True)
-        self.check_auto_open.setStyleSheet("""
-            QCheckBox { spacing: 5px; }
-            QCheckBox::indicator { width: 18px; height: 18px; }
-        """)
         output_layout.addWidget(self.check_auto_open)
 
         layout.addWidget(output_group)
