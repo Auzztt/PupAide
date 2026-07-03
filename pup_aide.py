@@ -173,7 +173,7 @@ class PupAideMainWindow(QMainWindow):
             "🔄 文件夹同步/备份",
             "💾 磁盘空间分析器",
             "📄 PDF 批量处理",
-            "📂 文件批量处理",
+            "📂 文件批量筛选",
             "🔍 OCR 文字识别工具",
             "✂️ 文件名称提取器",  # 0422新增功能
             "📑 文档拆分工具",
@@ -2710,28 +2710,28 @@ class PDFBatchPage(QWidget):
         return pages
 
 
-# ========== 功能5：文件批量处理 ==========
+# ========== 功能5：文件批量筛选 ==========
 class OfficeBatchPage(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        layout.setSpacing(12)
 
-        title = QLabel("📂 文件批量处理")
+        title = QLabel("📂 文件批量筛选")
         title_font = QFont()
         title_font.setPointSize(22)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
 
-        layout.addSpacing(15)
+        layout.addSpacing(10)
 
         self.setup_filter_content(layout)
 
     def setup_filter_content(self, parent_layout):
         group_font = QFont()
-        group_font.setPointSize(13)
+        group_font.setPointSize(15)
 
         file_group = QGroupBox("待筛选文件")
         file_group.setFont(group_font)
@@ -2791,7 +2791,7 @@ class OfficeBatchPage(QWidget):
         file_btn_layout.addWidget(self.file_count_label)
         file_layout.addLayout(file_btn_layout)
 
-        parent_layout.addWidget(file_group, stretch=2)
+        parent_layout.addWidget(file_group, stretch=3)
 
         name_group = QGroupBox("筛选名单")
         name_group.setFont(group_font)
@@ -2859,18 +2859,20 @@ class OfficeBatchPage(QWidget):
         parent_layout.addWidget(option_group)
 
         action_layout = QHBoxLayout()
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(0)
         self.btn_filter = QPushButton("🔍 开始筛选")
-        self.btn_filter.setMinimumWidth(150)
+        self.btn_filter.setMinimumWidth(110)
         self.btn_filter.setStyleSheet("""
             QPushButton {
                 background-color: #FFB347;
                 color: white;
                 border: none;
-                padding: 10px 25px;
-                border-radius: 6px;
-                min-height: 35px;
+                padding: 4px 12px;
+                border-radius: 4px;
+                min-height: 26px;
                 font-weight: bold;
-                font-size: 13pt;
+                font-size: 10pt;
             }
             QPushButton:hover { background-color: #FF9500; }
         """)
@@ -2937,7 +2939,7 @@ class OfficeBatchPage(QWidget):
         result_btn_layout.addStretch()
         result_layout.addLayout(result_btn_layout)
 
-        parent_layout.addWidget(result_group, stretch=2)
+        parent_layout.addWidget(result_group, stretch=3)
 
         self.filtered_files = []
 
@@ -5956,6 +5958,21 @@ def main():
 
     app = QApplication(sys.argv)
     qApp = app
+
+    if getattr(sys, 'frozen', False):
+        icon_path = os.path.join(sys._MEIPASS, 'dog.ico')
+    else:
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dog.ico')
+    app.setWindowIcon(QIcon(icon_path))
+
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            myappid = 'PupAide.App.1.0'
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except:
+            pass
+
     window = PupAideMainWindow()
     window.show()
     sys.exit(app.exec())
