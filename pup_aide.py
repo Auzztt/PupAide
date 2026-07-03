@@ -2725,56 +2725,17 @@ class OfficeBatchPage(QWidget):
         title.setFont(title_font)
         layout.addWidget(title)
 
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                padding: 10px;
-                background-color: white;
-            }
-            QTabBar::tab {
-                padding: 8px 20px;
-                margin-right: 4px;
-                border: 1px solid #ddd;
-                border-bottom: none;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                background-color: #f5f5f5;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #666;
-            }
-            QTabBar::tab:selected {
-                background-color: #FFB347;
-                color: white;
-                border-color: #FFB347;
-            }
-            QTabBar::tab:hover:!selected {
-                background-color: #ffe4b5;
-            }
-        """)
+        layout.addSpacing(15)
 
-        self.filter_tab = QWidget()
-        self.setup_filter_tab()
-        self.tab_widget.addTab(self.filter_tab, "🔍 批量筛选文件")
+        self.setup_filter_content(layout)
 
-        layout.addWidget(self.tab_widget)
-
-    def setup_filter_tab(self):
-        layout = QVBoxLayout(self.filter_tab)
-        layout.setSpacing(15)
-
+    def setup_filter_content(self, parent_layout):
         group_font = QFont()
         group_font.setPointSize(13)
 
         file_group = QGroupBox("待筛选文件")
         file_group.setFont(group_font)
         file_layout = QVBoxLayout(file_group)
-
-        hint_label = QLabel("点击「添加文件」或将文件拖入下方列表")
-        hint_label.setStyleSheet("color: #999; font-size: 10pt;")
-        file_layout.addWidget(hint_label)
 
         self.file_list = DropFileListWidget()
         self.file_list.files_added.connect(self.on_files_added)
@@ -2785,25 +2746,25 @@ class OfficeBatchPage(QWidget):
                 border-radius: 6px;
                 padding: 5px;
                 background-color: white;
-                min-height: 150px;
             }
             QListWidget::item {
-                padding: 6px 10px;
+                padding: 4px 8px;
                 border-radius: 4px;
+                font-size: 10pt;
             }
             QListWidget::item:selected {
                 background-color: #FFE4B5;
                 color: #333;
             }
         """)
-        file_layout.addWidget(self.file_list)
+        file_layout.addWidget(self.file_list, stretch=1)
 
         file_btn_layout = QHBoxLayout()
-        self.btn_add_files = QPushButton("➕ 添加文件")
+        self.btn_add_files = QPushButton("➕ 添加")
         self.btn_add_files.clicked.connect(self.add_files)
-        self.btn_remove_files = QPushButton("🗑️ 移除选中")
+        self.btn_remove_files = QPushButton("🗑️ 移除")
         self.btn_remove_files.clicked.connect(self.remove_selected_files)
-        self.btn_clear_files = QPushButton("🧹 清空列表")
+        self.btn_clear_files = QPushButton("🧹 清空")
         self.btn_clear_files.clicked.connect(self.clear_files)
         for btn in [self.btn_add_files, self.btn_remove_files, self.btn_clear_files]:
             btn.setStyleSheet("""
@@ -2811,10 +2772,11 @@ class OfficeBatchPage(QWidget):
                     background-color: #FFB347;
                     color: white;
                     border: none;
-                    padding: 8px 15px;
-                    border-radius: 6px;
-                    min-height: 30px;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                    min-height: 26px;
                     font-weight: bold;
+                    font-size: 10pt;
                 }
                 QPushButton:hover {
                     background-color: #FF9500;
@@ -2825,37 +2787,33 @@ class OfficeBatchPage(QWidget):
         file_btn_layout.addWidget(self.btn_clear_files)
         file_btn_layout.addStretch()
         self.file_count_label = QLabel("共 0 个文件")
-        self.file_count_label.setStyleSheet("color: #666; font-weight: bold;")
+        self.file_count_label.setStyleSheet("color: #666; font-weight: bold; font-size: 10pt;")
         file_btn_layout.addWidget(self.file_count_label)
         file_layout.addLayout(file_btn_layout)
 
-        layout.addWidget(file_group)
+        parent_layout.addWidget(file_group, stretch=2)
 
         name_group = QGroupBox("筛选名单")
         name_group.setFont(group_font)
         name_layout = QVBoxLayout(name_group)
 
-        name_hint = QLabel("输入需要筛选的文件名（每行一个，支持带或不带扩展名）")
-        name_hint.setStyleSheet("color: #999; font-size: 10pt;")
-        name_layout.addWidget(name_hint)
-
         self.name_text = QTextEdit()
-        self.name_text.setPlaceholderText("例如：\n文件1.pdf\n文件2\n报告.docx")
+        self.name_text.setPlaceholderText("输入需要筛选的人名（每行一个），支持从 Excel 导入\n例如：\n张三\n王五\n赵六")
         self.name_text.setStyleSheet("""
             QTextEdit {
                 border: 1px solid #ddd;
                 border-radius: 6px;
                 padding: 8px;
                 background-color: white;
-                min-height: 100px;
+                font-size: 10pt;
             }
         """)
-        name_layout.addWidget(self.name_text)
+        name_layout.addWidget(self.name_text, stretch=1)
 
         name_btn_layout = QHBoxLayout()
-        self.btn_load_names = QPushButton("📄 从文件导入名单")
+        self.btn_load_names = QPushButton("📄 导入名单")
         self.btn_load_names.clicked.connect(self.load_names_from_file)
-        self.btn_clear_names = QPushButton("🧹 清空名单")
+        self.btn_clear_names = QPushButton("🧹 清空")
         self.btn_clear_names.clicked.connect(lambda: self.name_text.clear())
         for btn in [self.btn_load_names, self.btn_clear_names]:
             btn.setStyleSheet("""
@@ -2863,10 +2821,11 @@ class OfficeBatchPage(QWidget):
                     background-color: #FFB347;
                     color: white;
                     border: none;
-                    padding: 8px 15px;
-                    border-radius: 6px;
-                    min-height: 30px;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                    min-height: 26px;
                     font-weight: bold;
+                    font-size: 10pt;
                 }
                 QPushButton:hover {
                     background-color: #FF9500;
@@ -2876,28 +2835,28 @@ class OfficeBatchPage(QWidget):
         name_btn_layout.addWidget(self.btn_clear_names)
         name_btn_layout.addStretch()
         self.name_count_label = QLabel("共 0 个名称")
-        self.name_count_label.setStyleSheet("color: #666; font-weight: bold;")
+        self.name_count_label.setStyleSheet("color: #666; font-weight: bold; font-size: 10pt;")
         name_btn_layout.addWidget(self.name_count_label)
         name_layout.addLayout(name_btn_layout)
 
         self.name_text.textChanged.connect(self.update_name_count)
 
-        layout.addWidget(name_group)
+        parent_layout.addWidget(name_group, stretch=1)
 
         option_group = QGroupBox("筛选选项")
         option_group.setFont(group_font)
         option_layout = QHBoxLayout(option_group)
 
-        self.check_match_ext = QCheckBox("精确匹配扩展名")
-        self.check_match_ext.setChecked(True)
-        option_layout.addWidget(self.check_match_ext)
-
         self.check_case_sensitive = QCheckBox("区分大小写")
         self.check_case_sensitive.setChecked(False)
         option_layout.addWidget(self.check_case_sensitive)
 
+        self.check_match_name_only = QCheckBox("仅匹配文件名（不含扩展名）")
+        self.check_match_name_only.setChecked(False)
+        option_layout.addWidget(self.check_match_name_only)
+
         option_layout.addStretch()
-        layout.addWidget(option_group)
+        parent_layout.addWidget(option_group)
 
         action_layout = QHBoxLayout()
         self.btn_filter = QPushButton("🔍 开始筛选")
@@ -2919,14 +2878,14 @@ class OfficeBatchPage(QWidget):
         action_layout.addStretch()
         action_layout.addWidget(self.btn_filter)
         action_layout.addStretch()
-        layout.addLayout(action_layout)
+        parent_layout.addLayout(action_layout)
 
         result_group = QGroupBox("筛选结果")
         result_group.setFont(group_font)
         result_layout = QVBoxLayout(result_group)
 
         self.result_info = QLabel("请先添加文件和筛选名单，然后点击「开始筛选」")
-        self.result_info.setStyleSheet("color: #666; font-size: 11pt; padding: 5px;")
+        self.result_info.setStyleSheet("color: #666; font-size: 10pt; padding: 4px;")
         result_layout.addWidget(self.result_info)
 
         self.result_list = QListWidget()
@@ -2937,34 +2896,37 @@ class OfficeBatchPage(QWidget):
                 border-radius: 6px;
                 padding: 5px;
                 background-color: white;
-                min-height: 120px;
             }
             QListWidget::item {
-                padding: 6px 10px;
+                padding: 4px 8px;
                 border-radius: 4px;
+                font-size: 10pt;
             }
             QListWidget::item:selected {
                 background-color: #C8E6C9;
                 color: #333;
             }
         """)
-        result_layout.addWidget(self.result_list)
+        result_layout.addWidget(self.result_list, stretch=1)
 
         result_btn_layout = QHBoxLayout()
-        self.btn_copy_selected = QPushButton("📋 复制选中文件到...")
+        self.btn_copy_selected = QPushButton("📋 复制选中到...")
         self.btn_copy_selected.clicked.connect(self.copy_selected_files)
-        self.btn_copy_all = QPushButton("📁 复制全部筛选结果到...")
+        self.btn_copy_selected.setMinimumWidth(110)
+        self.btn_copy_all = QPushButton("📁 复制全部到...")
         self.btn_copy_all.clicked.connect(self.copy_all_filtered)
+        self.btn_copy_all.setMinimumWidth(110)
         for btn in [self.btn_copy_selected, self.btn_copy_all]:
             btn.setStyleSheet("""
                 QPushButton {
                     background-color: #FFB347;
                     color: white;
                     border: none;
-                    padding: 8px 15px;
-                    border-radius: 6px;
-                    min-height: 30px;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                    min-height: 26px;
                     font-weight: bold;
+                    font-size: 10pt;
                 }
                 QPushButton:hover {
                     background-color: #FF9500;
@@ -2975,7 +2937,7 @@ class OfficeBatchPage(QWidget):
         result_btn_layout.addStretch()
         result_layout.addLayout(result_btn_layout)
 
-        layout.addWidget(result_group)
+        parent_layout.addWidget(result_group, stretch=2)
 
         self.filtered_files = []
 
@@ -3021,16 +2983,34 @@ class OfficeBatchPage(QWidget):
         self.name_count_label.setText(f"共 {len(names)} 个名称")
 
     def load_names_from_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "选择名单文件", "", "文本文件 (*.txt);;所有文件 (*.*)")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择名单文件", "", "Excel文件 (*.xlsx *.xls);;文本文件 (*.txt);;所有文件 (*.*)"
+        )
         if file_path:
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                self.name_text.setPlainText(content)
+                if file_path.endswith('.xlsx') or file_path.endswith('.xls'):
+                    try:
+                        import openpyxl
+                        wb = openpyxl.load_workbook(file_path)
+                        ws = wb.active
+                        names = []
+                        for row in ws.iter_rows(values_only=True):
+                            for cell in row:
+                                if cell and str(cell).strip():
+                                    names.append(str(cell).strip())
+                        self.name_text.setPlainText('\n'.join(names))
+                    except ImportError:
+                        QMessageBox.warning(self, "提示", "请先安装 openpyxl 库：pip install openpyxl")
+                else:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    self.name_text.setPlainText(content)
             except UnicodeDecodeError:
                 with open(file_path, 'r', encoding='gbk') as f:
                     content = f.read()
                 self.name_text.setPlainText(content)
+            except Exception as e:
+                QMessageBox.warning(self, "导入失败", f"无法读取文件：{str(e)}")
 
     def filter_files(self):
         if self.file_list.count() == 0:
@@ -3042,16 +3022,12 @@ class OfficeBatchPage(QWidget):
             QMessageBox.warning(self, "提示", "请先输入筛选名单！")
             return
 
-        match_ext = self.check_match_ext.isChecked()
         case_sensitive = self.check_case_sensitive.isChecked()
+        match_name_only = self.check_match_name_only.isChecked()
 
         names = [line.strip() for line in name_text.split('\n') if line.strip()]
-        name_set = set()
-        for name in names:
-            if case_sensitive:
-                name_set.add(name)
-            else:
-                name_set.add(name.lower())
+        if not case_sensitive:
+            names = [n.lower() for n in names]
 
         self.filtered_files = []
         self.result_list.clear()
@@ -3061,54 +3037,30 @@ class OfficeBatchPage(QWidget):
             file_path = item.data(Qt.ItemDataRole.UserRole)
             file_name = os.path.basename(file_path)
 
-            if match_ext:
-                compare_name = file_name
-            else:
+            if match_name_only:
                 compare_name = os.path.splitext(file_name)[0]
+            else:
+                compare_name = file_name
 
             if not case_sensitive:
                 compare_name = compare_name.lower()
 
-            if compare_name in name_set:
-                self.filtered_files.append(file_path)
-                result_item = QListWidgetItem(f"✅ {file_name}")
-                result_item.setData(Qt.ItemDataRole.UserRole, file_path)
-                result_item.setToolTip(file_path)
-                self.result_list.addItem(result_item)
-
-        not_found = []
-        for name in names:
-            found = False
-            for fp in self.filtered_files:
-                fname = os.path.basename(fp)
-                if match_ext:
-                    cname = fname
-                else:
-                    cname = os.path.splitext(fname)[0]
-                if not case_sensitive:
-                    cname = cname.lower()
-                    target = name.lower()
-                else:
-                    cname = cname
-                    target = name
-                if cname == target:
-                    found = True
+            for name in names:
+                if name in compare_name:
+                    self.filtered_files.append(file_path)
+                    result_item = QListWidgetItem(f"✅ {file_name}")
+                    result_item.setData(Qt.ItemDataRole.UserRole, file_path)
+                    result_item.setToolTip(file_path)
+                    self.result_list.addItem(result_item)
                     break
-            if not found:
-                not_found.append(name)
 
-        if not_found:
+        if self.filtered_files:
             self.result_info.setText(
-                f"找到 <span style='color:#4CAF50;font-weight:bold;'>{len(self.filtered_files)}</span> 个匹配文件，"
-                f"<span style='color:#f44336;font-weight:bold;'>{len(not_found)}</span> 个未找到"
+                f"找到 <span style='color:#4CAF50;font-weight:bold;'>{len(self.filtered_files)}</span> 个匹配文件"
             )
-            for nf in not_found:
-                miss_item = QListWidgetItem(f"❌ 未找到: {nf}")
-                miss_item.setForeground(QColor("#f44336"))
-                self.result_list.addItem(miss_item)
         else:
             self.result_info.setText(
-                f"找到 <span style='color:#4CAF50;font-weight:bold;'>{len(self.filtered_files)}</span> 个匹配文件，全部匹配成功！"
+                "<span style='color:#f44336;font-weight:bold;'>未找到任何匹配文件</span>"
             )
 
     def copy_selected_files(self):
