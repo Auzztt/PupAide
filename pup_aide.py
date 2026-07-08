@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 import hashlib
+import shutil
 from PyQt6.QtCore import Qt
 from PyQt6.QtCore import QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QFont
@@ -32,6 +33,13 @@ try:
     HAS_PYTHON_DOCX = True
 except ImportError:
     HAS_PYTHON_DOCX = False
+
+try:
+    import win32com.client as win32
+    from win32com.client import constants as wd_constants
+    HAS_WIN32COM = True
+except ImportError:
+    HAS_WIN32COM = False
 
 
 # 获取全局应用对象，用于后续强制刷新样式
@@ -108,10 +116,6 @@ class PupAideMainWindow(QMainWindow):
                 border-radius: 6px;
                 min-height: 30px;
             }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
             QProgressBar {
                 border: 1px solid #ddd;
                 border-radius: 6px;
@@ -176,7 +180,7 @@ class PupAideMainWindow(QMainWindow):
             "🔄 文件夹同步/备份",
             "💾 磁盘空间分析器",
             "📄 PDF 批量处理",
-            "📝 Word/Excel 批量替换",
+            "📂 文件批量筛选",
             "🔍 OCR 文字识别工具",
             "✂️ 文件名称提取器",  # 0422新增功能
             "📑 文档拆分工具",
@@ -373,16 +377,6 @@ class DuplicateFilePage(QWidget):
         check_font.setPointSize(12)
         self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(True)
-        # 强制只调整大小，不影响默认勾选图标
-        self.check_subfolders.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         option_layout.addWidget(self.check_subfolders)
         layout.addWidget(option_group)
@@ -689,45 +683,18 @@ class SyncBackupPage(QWidget):
         check_font.setPointSize(12)
         self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(True)
-        self.check_subfolders.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         self.check_overwrite = QCheckBox("覆盖已存在的文件")
         check_font = QFont()
         check_font.setPointSize(12)
         self.check_overwrite.setFont(check_font)
         self.check_overwrite.setChecked(True)
-        self.check_overwrite.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         self.check_delete = QCheckBox("删除目标文件夹中多余的文件（保持完全一致）")
         check_font = QFont()
         check_font.setPointSize(12)
         self.check_delete.setFont(check_font)
         self.check_delete.setChecked(False)
-        self.check_delete.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         option_layout.addWidget(self.check_subfolders)
         option_layout.addWidget(self.check_overwrite)
@@ -1160,30 +1127,12 @@ class DiskAnalyzerPage(QWidget):
         check_font.setPointSize(12)
         self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(True)
-        self.check_subfolders.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         self.check_large_files = QCheckBox("显示大文件列表 (大于100MB)")
         check_font = QFont()
         check_font.setPointSize(12)
         self.check_large_files.setFont(check_font)
         self.check_large_files.setChecked(True)
-        self.check_large_files.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
 
         option_layout.addWidget(self.check_subfolders)
         option_layout.addWidget(self.check_large_files)
@@ -2768,28 +2717,454 @@ class PDFBatchPage(QWidget):
         return pages
 
 
-# ========== 功能5：Word/Excel 批量替换与生成 ==========
+# ========== 功能5：文件批量筛选 ==========
 class OfficeBatchPage(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        label = QLabel("📝 Word/Excel 批量替换与生成")
+        layout.setSpacing(12)
+
+        title = QLabel("📂 文件批量筛选")
         title_font = QFont()
         title_font.setPointSize(22)
         title_font.setBold(True)
-        label.setFont(title_font)
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet("color: #666;")
-        layout.addWidget(label)
+        title.setFont(title_font)
+        layout.addWidget(title)
 
-        info = QLabel("此功能正在开发中，敬请期待...")
-        info_font = QFont()
-        info_font.setPointSize(14)
-        info.setFont(info_font)
-        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info.setStyleSheet("color: #999; margin-top: 20px;")
-        layout.addWidget(info)
+        layout.addSpacing(10)
+
+        self.setup_filter_content(layout)
+
+    def setup_filter_content(self, parent_layout):
+        group_font = QFont()
+        group_font.setPointSize(15)
+
+        file_group = QGroupBox("待筛选文件")
+        file_group.setFont(group_font)
+        file_layout = QVBoxLayout(file_group)
+
+        self.file_list = DropFileListWidget()
+        self.file_list.files_added.connect(self.on_files_added)
+        self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.file_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 5px;
+                background-color: white;
+            }
+            QListWidget::item {
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 10pt;
+            }
+            QListWidget::item:selected {
+                background-color: #FFE4B5;
+                color: #333;
+            }
+        """)
+        file_layout.addWidget(self.file_list, stretch=1)
+
+        file_btn_layout = QHBoxLayout()
+        self.btn_add_files = QPushButton("➕ 添加")
+        self.btn_add_files.clicked.connect(self.add_files)
+        self.btn_remove_files = QPushButton("🗑️ 移除")
+        self.btn_remove_files.clicked.connect(self.remove_selected_files)
+        self.btn_clear_files = QPushButton("🧹 清空")
+        self.btn_clear_files.clicked.connect(self.clear_files)
+        for btn in [self.btn_add_files, self.btn_remove_files, self.btn_clear_files]:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FFB347;
+                    color: white;
+                    border: none;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                    min-height: 26px;
+                    font-weight: bold;
+                    font-size: 10pt;
+                }
+                QPushButton:hover {
+                    background-color: #FF9500;
+                }
+            """)
+        file_btn_layout.addWidget(self.btn_add_files)
+        file_btn_layout.addWidget(self.btn_remove_files)
+        file_btn_layout.addWidget(self.btn_clear_files)
+        file_btn_layout.addStretch()
+        self.file_count_label = QLabel("共 0 个文件")
+        self.file_count_label.setStyleSheet("color: #666; font-weight: bold; font-size: 10pt;")
+        file_btn_layout.addWidget(self.file_count_label)
+        file_layout.addLayout(file_btn_layout)
+
+        parent_layout.addWidget(file_group, stretch=3)
+
+        name_group = QGroupBox("筛选名单")
+        name_group.setFont(group_font)
+        name_layout = QVBoxLayout(name_group)
+
+        self.name_text = QTextEdit()
+        self.name_text.setPlaceholderText("输入需要筛选的人名（每行一个），支持从 Excel 导入\n例如：\n张三\n王五\n赵六")
+        self.name_text.setStyleSheet("""
+            QTextEdit {
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 8px;
+                background-color: white;
+                font-size: 10pt;
+            }
+        """)
+        name_layout.addWidget(self.name_text, stretch=1)
+
+        name_btn_layout = QHBoxLayout()
+        self.btn_load_names = QPushButton("📄 导入名单")
+        self.btn_load_names.clicked.connect(self.load_names_from_file)
+        self.btn_clear_names = QPushButton("🧹 清空")
+        self.btn_clear_names.clicked.connect(lambda: self.name_text.clear())
+        for btn in [self.btn_load_names, self.btn_clear_names]:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FFB347;
+                    color: white;
+                    border: none;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                    min-height: 26px;
+                    font-weight: bold;
+                    font-size: 10pt;
+                }
+                QPushButton:hover {
+                    background-color: #FF9500;
+                }
+            """)
+        name_btn_layout.addWidget(self.btn_load_names)
+        name_btn_layout.addWidget(self.btn_clear_names)
+        name_btn_layout.addStretch()
+        self.name_count_label = QLabel("共 0 个名称")
+        self.name_count_label.setStyleSheet("color: #666; font-weight: bold; font-size: 10pt;")
+        name_btn_layout.addWidget(self.name_count_label)
+        name_layout.addLayout(name_btn_layout)
+
+        self.name_text.textChanged.connect(self.update_name_count)
+
+        parent_layout.addWidget(name_group, stretch=1)
+
+        option_group = QGroupBox("筛选选项")
+        option_group.setFont(group_font)
+        option_layout = QHBoxLayout(option_group)
+
+        self.check_case_sensitive = QCheckBox("区分大小写")
+        self.check_case_sensitive.setChecked(False)
+        option_layout.addWidget(self.check_case_sensitive)
+
+        self.check_match_name_only = QCheckBox("仅匹配文件名（不含扩展名）")
+        self.check_match_name_only.setChecked(False)
+        option_layout.addWidget(self.check_match_name_only)
+
+        option_layout.addStretch()
+        parent_layout.addWidget(option_group)
+
+        action_layout = QHBoxLayout()
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(0)
+        self.btn_filter = QPushButton("🔍 开始筛选")
+        self.btn_filter.setMinimumWidth(110)
+        self.btn_filter.setStyleSheet("""
+            QPushButton {
+                background-color: #FFB347;
+                color: white;
+                border: none;
+                padding: 4px 12px;
+                border-radius: 4px;
+                min-height: 26px;
+                font-weight: bold;
+                font-size: 10pt;
+            }
+            QPushButton:hover { background-color: #FF9500; }
+        """)
+        self.btn_filter.clicked.connect(self.filter_files)
+        action_layout.addStretch()
+        action_layout.addWidget(self.btn_filter)
+        action_layout.addStretch()
+        parent_layout.addLayout(action_layout)
+
+        result_group = QGroupBox("筛选结果")
+        result_group.setFont(group_font)
+        result_layout = QVBoxLayout(result_group)
+
+        self.result_info = QLabel("请先添加文件和筛选名单，然后点击「开始筛选」")
+        self.result_info.setStyleSheet("color: #666; font-size: 10pt; padding: 4px;")
+        result_layout.addWidget(self.result_info)
+
+        self.result_list = QListWidget()
+        self.result_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.result_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 5px;
+                background-color: white;
+            }
+            QListWidget::item {
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 10pt;
+            }
+            QListWidget::item:selected {
+                background-color: #C8E6C9;
+                color: #333;
+            }
+        """)
+        result_layout.addWidget(self.result_list, stretch=1)
+
+        result_btn_layout = QHBoxLayout()
+        self.btn_copy_selected = QPushButton("📋 复制选中到...")
+        self.btn_copy_selected.clicked.connect(self.copy_selected_files)
+        self.btn_copy_selected.setMinimumWidth(110)
+        self.btn_copy_all = QPushButton("📁 复制全部到...")
+        self.btn_copy_all.clicked.connect(self.copy_all_filtered)
+        self.btn_copy_all.setMinimumWidth(110)
+        for btn in [self.btn_copy_selected, self.btn_copy_all]:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FFB347;
+                    color: white;
+                    border: none;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                    min-height: 26px;
+                    font-weight: bold;
+                    font-size: 10pt;
+                }
+                QPushButton:hover {
+                    background-color: #FF9500;
+                }
+            """)
+        result_btn_layout.addWidget(self.btn_copy_selected)
+        result_btn_layout.addWidget(self.btn_copy_all)
+        result_btn_layout.addStretch()
+        result_layout.addLayout(result_btn_layout)
+
+        parent_layout.addWidget(result_group, stretch=3)
+
+        self.filtered_files = []
+
+    def on_files_added(self, file_paths):
+        for fp in file_paths:
+            if os.path.isfile(fp):
+                name = os.path.basename(fp)
+                exists = False
+                for i in range(self.file_list.count()):
+                    if self.file_list.item(i).data(Qt.ItemDataRole.UserRole) == fp:
+                        exists = True
+                        break
+                if not exists:
+                    item = QListWidgetItem(f"📄 {name}")
+                    item.setData(Qt.ItemDataRole.UserRole, fp)
+                    item.setToolTip(fp)
+                    self.file_list.addItem(item)
+        self.update_file_count()
+
+    def add_files(self):
+        files, _ = QFileDialog.getOpenFileNames(self, "选择文件", "", "所有文件 (*.*)")
+        if files:
+            self.on_files_added(files)
+
+    def remove_selected_files(self):
+        for item in self.file_list.selectedItems():
+            self.file_list.takeItem(self.file_list.row(item))
+        self.update_file_count()
+
+    def clear_files(self):
+        self.file_list.clear()
+        self.update_file_count()
+
+    def update_file_count(self):
+        self.file_count_label.setText(f"共 {self.file_list.count()} 个文件")
+
+    def update_name_count(self):
+        text = self.name_text.toPlainText().strip()
+        if not text:
+            self.name_count_label.setText("共 0 个名称")
+            return
+        names = [line.strip() for line in text.split('\n') if line.strip()]
+        self.name_count_label.setText(f"共 {len(names)} 个名称")
+
+    def load_names_from_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择名单文件", "", "Excel文件 (*.xlsx *.xls);;文本文件 (*.txt);;所有文件 (*.*)"
+        )
+        if file_path:
+            try:
+                if file_path.endswith('.xlsx') or file_path.endswith('.xls'):
+                    try:
+                        import openpyxl
+                        wb = openpyxl.load_workbook(file_path)
+                        ws = wb.active
+                        names = []
+                        for row in ws.iter_rows(values_only=True):
+                            for cell in row:
+                                if cell and str(cell).strip():
+                                    names.append(str(cell).strip())
+                        self.name_text.setPlainText('\n'.join(names))
+                    except ImportError:
+                        QMessageBox.warning(self, "提示", "请先安装 openpyxl 库：pip install openpyxl")
+                else:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    self.name_text.setPlainText(content)
+            except UnicodeDecodeError:
+                with open(file_path, 'r', encoding='gbk') as f:
+                    content = f.read()
+                self.name_text.setPlainText(content)
+            except Exception as e:
+                QMessageBox.warning(self, "导入失败", f"无法读取文件：{str(e)}")
+
+    def filter_files(self):
+        if self.file_list.count() == 0:
+            QMessageBox.warning(self, "提示", "请先添加待筛选的文件！")
+            return
+
+        name_text = self.name_text.toPlainText().strip()
+        if not name_text:
+            QMessageBox.warning(self, "提示", "请先输入筛选名单！")
+            return
+
+        case_sensitive = self.check_case_sensitive.isChecked()
+        match_name_only = self.check_match_name_only.isChecked()
+
+        names = [line.strip() for line in name_text.split('\n') if line.strip()]
+        if not case_sensitive:
+            names = [n.lower() for n in names]
+
+        self.filtered_files = []
+        self.result_list.clear()
+
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            file_path = item.data(Qt.ItemDataRole.UserRole)
+            file_name = os.path.basename(file_path)
+
+            if match_name_only:
+                compare_name = os.path.splitext(file_name)[0]
+            else:
+                compare_name = file_name
+
+            if not case_sensitive:
+                compare_name = compare_name.lower()
+
+            for name in names:
+                if name in compare_name:
+                    self.filtered_files.append(file_path)
+                    result_item = QListWidgetItem(f"✅ {file_name}")
+                    result_item.setData(Qt.ItemDataRole.UserRole, file_path)
+                    result_item.setToolTip(file_path)
+                    self.result_list.addItem(result_item)
+                    break
+
+        if self.filtered_files:
+            self.result_info.setText(
+                f"找到 <span style='color:#4CAF50;font-weight:bold;'>{len(self.filtered_files)}</span> 个匹配文件"
+            )
+        else:
+            self.result_info.setText(
+                "<span style='color:#f44336;font-weight:bold;'>未找到任何匹配文件</span>"
+            )
+
+    def copy_selected_files(self):
+        selected = self.result_list.selectedItems()
+        files_to_copy = []
+        for item in selected:
+            fp = item.data(Qt.ItemDataRole.UserRole)
+            if fp and os.path.isfile(fp):
+                files_to_copy.append(fp)
+
+        if not files_to_copy:
+            QMessageBox.warning(self, "提示", "请先在筛选结果中选择要复制的文件！")
+            return
+
+        dest_dir = QFileDialog.getExistingDirectory(self, "选择目标文件夹")
+        if not dest_dir:
+            return
+
+        success = 0
+        errors = []
+        for fp in files_to_copy:
+            try:
+                shutil.copy2(fp, os.path.join(dest_dir, os.path.basename(fp)))
+                success += 1
+            except Exception as e:
+                errors.append(f"{os.path.basename(fp)}: {str(e)}")
+
+        msg = f"成功复制 {success} 个文件"
+        if errors:
+            msg += f"\n失败 {len(errors)} 个：\n" + "\n".join(errors[:5])
+            if len(errors) > 5:
+                msg += f"\n... 还有 {len(errors)-5} 个"
+            QMessageBox.warning(self, "部分文件复制失败", msg)
+        else:
+            QMessageBox.information(self, "完成", msg)
+
+    def copy_all_filtered(self):
+        if not self.filtered_files:
+            QMessageBox.warning(self, "提示", "没有可复制的筛选结果！")
+            return
+
+        dest_dir = QFileDialog.getExistingDirectory(self, "选择目标文件夹")
+        if not dest_dir:
+            return
+
+        success = 0
+        errors = []
+        for fp in self.filtered_files:
+            try:
+                shutil.copy2(fp, os.path.join(dest_dir, os.path.basename(fp)))
+                success += 1
+            except Exception as e:
+                errors.append(f"{os.path.basename(fp)}: {str(e)}")
+
+        msg = f"成功复制 {success} 个文件"
+        if errors:
+            msg += f"\n失败 {len(errors)} 个：\n" + "\n".join(errors[:5])
+            if len(errors) > 5:
+                msg += f"\n... 还有 {len(errors)-5} 个"
+            QMessageBox.warning(self, "部分文件复制失败", msg)
+        else:
+            QMessageBox.information(self, "完成", msg)
+
+
+class DropFileListWidget(QListWidget):
+    files_added = pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            file_paths = []
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    file_paths.append(url.toLocalFile())
+            if file_paths:
+                self.files_added.emit(file_paths)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
 
 # ========== 功能6：文件名称提取器 ==========
@@ -2857,15 +3232,6 @@ class FileNameCut(QWidget):
         check_font.setPointSize(12)
         self.check_subfolders.setFont(check_font)
         self.check_subfolders.setChecked(False)
-        self.check_subfolders.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
         folder_layout.addWidget(self.check_subfolders)
 
         # 排除文件后缀选项
@@ -2874,15 +3240,6 @@ class FileNameCut(QWidget):
         check_font2.setPointSize(12)
         self.check_no_ext.setFont(check_font2)
         self.check_no_ext.setChecked(True)
-        self.check_no_ext.setStyleSheet("""
-            QCheckBox {
-                spacing: 5px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-        """)
         folder_layout.addWidget(self.check_no_ext)
 
         layout.addWidget(folder_group)
@@ -3363,18 +3720,58 @@ class SplitWorker(QThread):
     def _count_word_groups(self, file_path):
         if not HAS_PYTHON_DOCX:
             return 0
-        doc = DocxDocument(file_path)
-        total_paras = len(doc.paragraphs)
-        if self.rule == "by_page_count":
-            n = self.params.get('pages_per_split', 5)
-            paras_per = n * 15
-            return (total_paras + paras_per - 1) // paras_per if paras_per > 0 else 1
-        elif self.rule == "by_heading":
+
+        if self.rule == "by_heading":
+            doc = DocxDocument(file_path)
             count = 0
             for para in doc.paragraphs:
                 if para.style.name.startswith('Heading'):
                     count += 1
             return max(count, 1)
+
+        if self.rule in ("by_page_count", "by_custom_pages"):
+            # 优先使用 Word COM 获取精确页数
+            if HAS_WIN32COM:
+                try:
+                    word_app = win32.Dispatch("Word.Application")
+                    word_app.Visible = False
+                    word_app.DisplayAlerts = 0
+                    doc = word_app.Documents.Open(os.path.abspath(file_path))
+                    total_pages = doc.ComputeStatistics(2)  # wdStatisticPages
+                    doc.Close()
+                    word_app.Quit()
+
+                    if self.rule == "by_page_count":
+                        n = self.params.get('pages_per_split', 5)
+                        return (total_pages + n - 1) // n
+                    elif self.rule == "by_custom_pages":
+                        range_groups = self.parse_custom_ranges(
+                            self.params.get('page_ranges', ''))
+                        valid_count = 0
+                        for grp in range_groups:
+                            if any(1 <= p <= total_pages for p in grp):
+                                valid_count += 1
+                        return max(valid_count, 1)
+                except Exception:
+                    pass
+
+            # 回退：python-docx 段落估算
+            doc = DocxDocument(file_path)
+            total_paras = len(doc.paragraphs)
+            if self.rule == "by_page_count":
+                n = self.params.get('pages_per_split', 5)
+                paras_per = n * 15
+                return (total_paras + paras_per - 1) // paras_per if paras_per > 0 else 1
+            elif self.rule == "by_custom_pages":
+                range_groups = self.parse_custom_ranges(
+                    self.params.get('page_ranges', ''))
+                est_total_pages = max(1, total_paras // 15)
+                valid_count = 0
+                for grp in range_groups:
+                    if any(1 <= p <= est_total_pages for p in grp):
+                        valid_count += 1
+                return max(valid_count, 1)
+
         return 1
 
     def _count_excel_groups(self, file_path):
@@ -3564,53 +3961,128 @@ class SplitWorker(QThread):
                 "缺少 python-docx 库，请先安装: pip install python-docx")
             return []
 
-        doc = DocxDocument(file_path)
-        groups = []  # 每个元素是 (段落索引列表, 标题)
+        # 按标题样式拆分直接用python-docx（不依赖COM分页）
+        if self.rule == "by_heading":
+            return self._split_word_by_heading(file_path)
 
-        if self.rule == "by_page_count":
-            # Word无原生页概念，按段落均分近似
-            pages_per_split = self.params.get('pages_per_split', 5)
+        # 按页数拆分：优先使用 Word COM 自动化获取精确分页
+        if HAS_WIN32COM and self.rule in ("by_page_count", "by_custom_pages"):
+            return self._split_word_by_pages_com(file_path)
+
+        # 回退：python-docx 按段落近似拆分
+        return self._split_word_by_paragraphs_fallback(file_path)
+
+    def _split_word_by_pages_com(self, file_path):
+        """使用 Word COM 自动化按精确页码拆分，保留所有格式"""
+        abs_path = os.path.abspath(file_path)
+        word_app = None
+        output_files = []
+
+        try:
+            word_app = win32.Dispatch("Word.Application")
+            word_app.Visible = False
+            word_app.DisplayAlerts = 0  # wdAlertsNone
+
+            doc = word_app.Documents.Open(abs_path)
+            total_pages = doc.ComputeStatistics(2)  # wdStatisticPages = 2
+
+            # 计算页码范围
+            page_ranges = []  # [(start_page, end_page), ...]
+            if self.rule == "by_page_count":
+                pages_per_split = self.params.get('pages_per_split', 5)
+                for start in range(1, total_pages + 1, pages_per_split):
+                    end = min(start + pages_per_split - 1, total_pages)
+                    page_ranges.append((start, end))
+            elif self.rule == "by_custom_pages":
+                range_groups = self.parse_custom_ranges(
+                    self.params.get('page_ranges', ''))
+                for grp in range_groups:
+                    valid = [p for p in grp if 1 <= p <= total_pages]
+                    if valid:
+                        page_ranges.append((valid[0], valid[-1]))
+
+            if not page_ranges:
+                doc.Close()
+                return []
+
+            for i, (start_page, end_page) in enumerate(page_ranges):
+                if not self._is_running:
+                    break
+
+                # 复制页码范围到新文档
+                # 使用 GoTo 跳转到起始页
+                start_range = doc.GoTo(1, 1, start_page)  # wdGoToPage=1, wdGoToAbsolute=1
+                start_pos = start_range.Start
+
+                # 跳转到结束页的末尾
+                if end_page < total_pages:
+                    # 跳到下一页开头，然后回退
+                    end_range = doc.GoTo(1, 1, end_page + 1)
+                    end_pos = end_range.Start - 1
+                else:
+                    end_pos = doc.Range().End
+
+                # 选中页码范围并复制
+                page_range = doc.Range(start_pos, end_pos)
+
+                # 修复：确保包含最后一段的段落标记（¶），否则缩进等格式会丢失
+                if page_range.Paragraphs.Count > 0:
+                    last_para = page_range.Paragraphs.Last
+                    para_end = last_para.Range.End
+                    # 如果段落末尾仅差1个字符（段落标记本身），则扩展包含它
+                    if para_end - end_pos <= 1 and para_end <= doc.Range().End:
+                        page_range.End = para_end
+
+                page_range.Copy()
+
+                # 创建新文档并粘贴
+                new_doc = word_app.Documents.Add()
+                new_range = new_doc.Range()
+                new_range.Paste()
+
+                output_name = self.format_name(
+                    self.naming_template, file_path, i + 1,
+                    range(start_page, end_page + 1), "")
+                output_path = os.path.join(self.output_dir, output_name + '.docx')
+                new_doc.SaveAs(output_path, 16)  # wdFormatDocumentDefault=16
+                new_doc.Close()
+                output_files.append(output_path)
+
+                progress = int((i + 1) / len(page_ranges) * 100)
+                self.progress_updated.emit(progress, f"已拆分: {output_name}.docx")
+
+            doc.Close()
+
+        except Exception as e:
+            self.split_error.emit(f"Word COM 拆分失败: {str(e)}")
+        finally:
+            if word_app is not None:
+                try:
+                    word_app.Quit()
+                except Exception:
+                    pass
+
+        return output_files
+
+    def _split_word_by_heading(self, file_path):
+        """按标题样式拆分（基于python-docx）"""
+        doc = DocxDocument(file_path)
+        heading_groups = self._get_word_heading_ranges(doc)
+
+        if not heading_groups:
+            # 无标题时回退到段落均分
             total_paras = len(doc.paragraphs)
-            # 假设每页约15个段落（粗略估算）
-            paras_per_split = pages_per_split * 15
+            paras_per_split = 75
+            heading_groups = []
             for start in range(0, total_paras, paras_per_split):
                 end = min(start + paras_per_split, total_paras)
-                groups.append((list(range(start, end)), ""))
-
-        elif self.rule == "by_custom_pages":
-            # Word按页码拆分不精确，按段落比例近似
-            range_groups = self.parse_custom_ranges(
-                self.params.get('page_ranges', ''))
-            total_paras = len(doc.paragraphs)
-            # 估算总页数
-            est_total_pages = max(1, total_paras // 15)
-            for grp in range_groups:
-                valid = [p for p in grp if 1 <= p <= est_total_pages]
-                if valid:
-                    start_para = (valid[0] - 1) * 15
-                    end_para = min(valid[-1] * 15, total_paras)
-                    groups.append((list(range(start_para, end_para)), ""))
-
-        elif self.rule == "by_heading":
-            heading_groups = self._get_word_heading_ranges(doc)
-            if heading_groups:
-                groups = heading_groups
-            else:
-                # 无标题时回退为按段落均分
-                total_paras = len(doc.paragraphs)
-                paras_per_split = 75
-                for start in range(0, total_paras, paras_per_split):
-                    end = min(start + paras_per_split, total_paras)
-                    groups.append((list(range(start, end)), ""))
-
-        if not groups:
-            return []
+                heading_groups.append((list(range(start, end)), ""))
 
         output_files = []
-        for i, (para_indices, title) in enumerate(groups):
+        for i, (para_indices, title) in enumerate(heading_groups):
             new_doc = DocxDocument()
 
-            # 复制源文档的页面设置
+            # 复制页面设置
             if doc.sections:
                 source_section = doc.sections[0]
                 new_section = new_doc.sections[0]
@@ -3624,7 +4096,7 @@ class SplitWorker(QThread):
                 except Exception:
                     pass
 
-            # 复制段落内容
+            # 复制段落（保留格式）
             for idx in para_indices:
                 if idx < len(doc.paragraphs):
                     source_para = doc.paragraphs[idx]
@@ -3649,12 +4121,93 @@ class SplitWorker(QThread):
                         except Exception:
                             pass
 
-            # 估算页码范围
             page_group = None
             if para_indices:
-                start_page = para_indices[0] // 15 + 1
-                end_page = para_indices[-1] // 15 + 1
-                page_group = range(start_page, end_page + 1)
+                page_group = range(para_indices[0] // 15 + 1, para_indices[-1] // 15 + 2)
+
+            output_name = self.format_name(
+                self.naming_template, file_path, i + 1, page_group, title)
+            output_path = os.path.join(self.output_dir, output_name + '.docx')
+            new_doc.save(output_path)
+            output_files.append(output_path)
+
+            progress = int((i + 1) / len(heading_groups) * 100)
+            self.progress_updated.emit(progress, f"已拆分: {output_name}.docx")
+
+        return output_files
+
+    def _split_word_by_paragraphs_fallback(self, file_path):
+        """回退方案：python-docx 按段落近似拆分（不精确，但跨平台可用）"""
+        doc = DocxDocument(file_path)
+        groups = []
+
+        if self.rule == "by_page_count":
+            pages_per_split = self.params.get('pages_per_split', 5)
+            total_paras = len(doc.paragraphs)
+            paras_per_split = pages_per_split * 15
+            for start in range(0, total_paras, paras_per_split):
+                end = min(start + paras_per_split, total_paras)
+                groups.append((list(range(start, end)), ""))
+
+        elif self.rule == "by_custom_pages":
+            range_groups = self.parse_custom_ranges(
+                self.params.get('page_ranges', ''))
+            total_paras = len(doc.paragraphs)
+            est_total_pages = max(1, total_paras // 15)
+            for grp in range_groups:
+                valid = [p for p in grp if 1 <= p <= est_total_pages]
+                if valid:
+                    start_para = (valid[0] - 1) * 15
+                    end_para = min(valid[-1] * 15, total_paras)
+                    groups.append((list(range(start_para, end_para)), ""))
+
+        if not groups:
+            return []
+
+        output_files = []
+        for i, (para_indices, title) in enumerate(groups):
+            new_doc = DocxDocument()
+
+            if doc.sections:
+                source_section = doc.sections[0]
+                new_section = new_doc.sections[0]
+                try:
+                    new_section.page_width = source_section.page_width
+                    new_section.page_height = source_section.page_height
+                    new_section.left_margin = source_section.left_margin
+                    new_section.right_margin = source_section.right_margin
+                    new_section.top_margin = source_section.top_margin
+                    new_section.bottom_margin = source_section.bottom_margin
+                except Exception:
+                    pass
+
+            for idx in para_indices:
+                if idx < len(doc.paragraphs):
+                    source_para = doc.paragraphs[idx]
+                    new_para = new_doc.add_paragraph()
+                    try:
+                        if source_para.style.name in [s.name for s in new_doc.styles]:
+                            new_para.style = new_doc.styles[source_para.style.name]
+                    except Exception:
+                        pass
+                    for run in source_para.runs:
+                        new_run = new_para.add_run(run.text)
+                        new_run.bold = run.bold
+                        new_run.italic = run.italic
+                        new_run.underline = run.underline
+                        try:
+                            if run.font.size:
+                                new_run.font.size = run.font.size
+                            if run.font.color and run.font.color.rgb:
+                                new_run.font.color.rgb = run.font.color.rgb
+                            if run.font.name:
+                                new_run.font.name = run.font.name
+                        except Exception:
+                            pass
+
+            page_group = None
+            if para_indices:
+                page_group = range(para_indices[0] // 15 + 1, para_indices[-1] // 15 + 2)
 
             output_name = self.format_name(
                 self.naming_template, file_path, i + 1, page_group, title)
@@ -4570,10 +5123,6 @@ class DocSplitPage(QWidget):
         check_font.setPointSize(12)
         self.check_auto_open.setFont(check_font)
         self.check_auto_open.setChecked(True)
-        self.check_auto_open.setStyleSheet("""
-            QCheckBox { spacing: 5px; }
-            QCheckBox::indicator { width: 18px; height: 18px; }
-        """)
         output_layout.addWidget(self.check_auto_open)
 
         layout.addWidget(output_group)
@@ -4881,20 +5430,52 @@ class DocSplitPage(QWidget):
                     if not HAS_PYTHON_DOCX:
                         self.result_text.append(f"   ❌ 缺少 python-docx 库\n")
                         continue
+
+                    # 优先使用 Word COM 获取精确页数
+                    real_pages = None
+                    heading_count = 0
+                    total_paras = 0
+                    if HAS_WIN32COM and rule in ("by_page_count", "by_custom_pages"):
+                        try:
+                            word_app = win32.Dispatch("Word.Application")
+                            word_app.Visible = False
+                            word_app.DisplayAlerts = 0
+                            wdoc = word_app.Documents.Open(os.path.abspath(file_path))
+                            real_pages = wdoc.ComputeStatistics(2)  # wdStatisticPages
+                            wdoc.Close()
+                            word_app.Quit()
+                        except Exception:
+                            pass
+
                     doc = DocxDocument(file_path)
                     total_paras = len(doc.paragraphs)
-                    est_pages = max(1, total_paras // 15)
+                    est_pages = real_pages if real_pages else max(1, total_paras // 15)
                     self.result_text.append(
-                        f"   段落数: {total_paras} (约{est_pages}页)\n")
+                        f"   段落数: {total_paras} (共{est_pages}页)\n")
 
                     if rule == "by_page_count":
                         n = params.get('pages_per_split', 5)
                         count = (est_pages + n - 1) // n
                         self.result_text.append(
-                            f"   拆分方式: 每{n}页(近似) → 约{count}个文件\n")
+                            f"   拆分方式: 每{n}页 → {count}个文件\n")
+                        for i in range(count):
+                            start = i * n + 1
+                            end = min((i + 1) * n, est_pages)
+                            self.result_text.append(
+                                f"   文件{i+1}: 第{start}-{end}页\n")
+
+                    elif rule == "by_custom_pages":
+                        range_str = params.get('page_ranges', '')
+                        groups = self._parse_preview_ranges(range_str)
+                        self.result_text.append(
+                            f"   拆分方式: 自定义页码 → {len(groups)}个文件\n")
+                        for i, grp in enumerate(groups):
+                            valid = [p for p in grp if 1 <= p <= est_pages]
+                            if valid:
+                                self.result_text.append(
+                                    f"   文件{i+1}: 第{valid[0]}-{valid[-1]}页\n")
 
                     elif rule == "by_heading":
-                        heading_count = 0
                         for para in doc.paragraphs:
                             if para.style.name.startswith('Heading'):
                                 heading_count += 1
@@ -5612,6 +6193,21 @@ def main():
 
     app = QApplication(sys.argv)
     qApp = app
+
+    if getattr(sys, 'frozen', False):
+        icon_path = os.path.join(sys._MEIPASS, 'dog.ico')
+    else:
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dog.ico')
+    app.setWindowIcon(QIcon(icon_path))
+
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            myappid = 'PupAide.App.1.0'
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except:
+            pass
+
     window = PupAideMainWindow()
     window.show()
     sys.exit(app.exec())
