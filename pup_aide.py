@@ -3613,7 +3613,7 @@ class SplitWorker(QThread):
     split_error = pyqtSignal(str)
     needs_input_count = pyqtSignal(int)
 
-    def __init__(self, file_list, rule, params, output_dir, naming_template, output_format, input_names=None):
+    def __init__(self, file_list, rule, params, output_dir, naming_template, output_format, input_vars=None):
         super().__init__()
         self.file_list = file_list
         self.rule = rule
@@ -3621,19 +3621,23 @@ class SplitWorker(QThread):
         self.output_dir = output_dir
         self.naming_template = naming_template
         self.output_format = output_format
-        self.input_names = input_names or []
+        self.input_vars = input_vars or {}
         self._is_running = True
 
     def run(self):
         all_output_files = []
         total_files = len(self.file_list)
 
-        # 如果使用了{输入}变量，先预计算拆分组数并校验
-        if "{输入}" in self.naming_template and self.input_names:
-            total_groups = self._count_total_groups()
-            if total_groups != len(self.input_names):
-                self.needs_input_count.emit(total_groups)
-                return
+        # 如果使用了导入变量，先预计算拆分组数并校验
+        if self.input_vars:
+            # 检查命名模板中是否使用了任何导入变量
+            uses_imported = any(f"{{{name}}}" in self.naming_template for name in self.input_vars)
+            if uses_imported:
+                total_groups = self._count_total_groups()
+                total_rows = max(len(v) for v in self.input_vars.values()) if self.input_vars else 0
+                if total_groups != total_rows:
+                    self.needs_input_count.emit(total_groups)
+                    return
 
         for i, file_path in enumerate(self.file_list):
             if not self._is_running:
@@ -3812,12 +3816,14 @@ class SplitWorker(QThread):
         result = result.replace("{页码范围}", page_range_str)
         result = result.replace("{标题}", title if title else f"第{index}部分")
 
-        # 替换{输入}变量
-        if "{输入}" in result and self.input_names:
-            if index <= len(self.input_names):
-                result = result.replace("{输入}", self.input_names[index - 1])
-            else:
-                result = result.replace("{输入}", f"未知{index}")
+        # 替换导入的变量
+        for var_name, values in self.input_vars.items():
+            placeholder = f"{{{var_name}}}"
+            if placeholder in result:
+                if index <= len(values):
+                    result = result.replace(placeholder, values[index - 1])
+                else:
+                    result = result.replace(placeholder, f"缺失{index}")
 
         fmt_matches = re.findall(r'\{序号:(\w+)\}', result)
         for fmt in fmt_matches:
@@ -4800,7 +4806,7 @@ class DocSplitPage(QWidget):
         super().__init__()
         self.file_list_data = []
         self.split_worker = None
-        self.input_names = []
+        self.input_vars = {}  # {变量名: [值1, 值2, ...]}
         self.setup_ui()
 
     def setup_ui(self):
@@ -5048,13 +5054,13 @@ class DocSplitPage(QWidget):
         template_layout.addWidget(self.edit_naming)
         naming_layout.addLayout(template_layout)
 
-        hint_label = QLabel("可用变量: {原名}  {序号}  {序号:02d}  {日期}  {页码范围}  {标题}  {输入}")
-        hint_label.setStyleSheet("color: #999; font-size: 11px;")
-        naming_layout.addWidget(hint_label)
+        self.hint_label = QLabel("可用变量: {原名}  {序号}  {序号:02d}  {日期}  {页码范围}  {标题}")
+        self.hint_label.setStyleSheet("color: #999; font-size: 11px;")
+        naming_layout.addWidget(self.hint_label)
 
         # 导入命名变量
         import_layout = QHBoxLayout()
-        self.btn_import_names = QPushButton("📋 导入命名变量")
+        self.btn_import_names = QPushButton("📋 导入变量（Excel）")
         self.btn_import_names.clicked.connect(self.import_names)
         self.btn_import_names.setStyleSheet("""
             QPushButton {
@@ -5072,17 +5078,38 @@ class DocSplitPage(QWidget):
         """)
         import_layout.addWidget(self.btn_import_names)
 
-        self.label_import_info = QLabel("未导入")
+        self.btn_clear_import = QPushButton("✖ 清除变量")
+        self.btn_clear_import.clicked.connect(self.clear_imported_vars)
+        self.btn_clear_import.setVisible(False)
+        self.btn_clear_import.setStyleSheet("""
+            QPushButton {
+                background-color: #999;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                min-height: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #777;
+            }
+        """)
+        import_layout.addWidget(self.btn_clear_import)
+
+        self.label_import_info = QLabel("未导入变量，导入Excel后列名将作为变量名")
         self.label_import_info.setStyleSheet("color: #999;")
         import_layout.addWidget(self.label_import_info)
         import_layout.addStretch()
         naming_layout.addLayout(import_layout)
 
-        # 已导入的变量预览
-        self.import_names_list = QListWidget()
-        self.import_names_list.setMaximumHeight(80)
-        self.import_names_list.setVisible(False)
-        naming_layout.addWidget(self.import_names_list)
+        # 已导入的变量预览表格
+        self.import_vars_table = QTableWidget()
+        self.import_vars_table.setMaximumHeight(120)
+        self.import_vars_table.setVisible(False)
+        self.import_vars_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.import_vars_table.horizontalHeader().setStretchLastSection(True)
+        naming_layout.addWidget(self.import_vars_table)
 
         layout.addWidget(naming_group)
 
@@ -5220,50 +5247,90 @@ class DocSplitPage(QWidget):
         outer_layout.addWidget(scroll)
 
     def import_names(self):
-        """从Excel或TXT导入命名变量"""
+        """从Excel导入命名变量，每列第一行作为变量名"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "选择命名变量文件", "",
-            "Excel文件 (*.xlsx);;文本文件 (*.txt);;所有文件 (*)")
+            self, "选择变量文件（Excel）", "",
+            "Excel文件 (*.xlsx);;所有文件 (*)")
 
         if not file_path:
             return
 
-        names = []
         try:
             ext = os.path.splitext(file_path)[1].lower()
-            if ext == '.xlsx':
-                wb = openpyxl.load_workbook(file_path, read_only=True)
-                ws = wb.active
-                for row in ws.iter_rows(min_row=1, values_only=True):
-                    if row and row[0] is not None:
-                        names.append(str(row[0]).strip())
-                wb.close()
-            elif ext == '.txt':
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line:
-                            names.append(line)
-            else:
-                QMessageBox.warning(self, "提示", "仅支持 .xlsx 和 .txt 文件！")
+            if ext != '.xlsx':
+                QMessageBox.warning(self, "提示", "仅支持 .xlsx 文件！\n请导入Excel文件，每列第一行作为变量名称。")
                 return
 
-            if not names:
+            wb = openpyxl.load_workbook(file_path, read_only=True)
+            ws = wb.active
+
+            # 读取所有行
+            rows = []
+            for row in ws.iter_rows(values_only=True):
+                rows.append(list(row))
+            wb.close()
+
+            if not rows:
                 QMessageBox.warning(self, "提示", "文件中没有找到有效数据！")
                 return
 
-            self.input_names = names
-            self.label_import_info.setText(f"已导入 {len(names)} 个变量")
-            self.label_import_info.setStyleSheet("color: #4CAF50; font-weight: bold;")
+            # 第一行作为变量名
+            header = [str(cell).strip() if cell is not None else f"列{i+1}" for i, cell in enumerate(rows[0])]
 
-            # 显示预览
-            self.import_names_list.setVisible(True)
-            self.import_names_list.clear()
-            for name in names:
-                self.import_names_list.addItem(name)
+            # 后续行作为数据
+            var_data = {name: [] for name in header}
+            for row in rows[1:]:
+                for i, name in enumerate(header):
+                    val = str(row[i]).strip() if i < len(row) and row[i] is not None else ""
+                    var_data[name].append(val)
+
+            # 检查是否有有效变量
+            total_rows = max(len(v) for v in var_data.values()) if var_data else 0
+            if total_rows == 0:
+                QMessageBox.warning(self, "提示", "文件中没有找到有效数据行！")
+                return
+
+            self.input_vars = var_data
+
+            # 更新提示标签
+            var_hints = "  ".join(f"{{{name}}}" for name in header)
+            self.hint_label.setText(
+                f"可用变量: {{原名}}  {{序号}}  {{序号:02d}}  {{日期}}  {{页码范围}}  {{标题}}  {var_hints}")
+
+            self.label_import_info.setText(
+                f"已导入 {len(header)} 个变量，共 {total_rows} 行数据")
+            self.label_import_info.setStyleSheet("color: #4CAF50; font-weight: bold;")
+            self.btn_clear_import.setVisible(True)
+
+            # 显示预览表格
+            self.import_vars_table.setVisible(True)
+            self.import_vars_table.setRowCount(min(5, total_rows) + 1)  # 最多显示5行+表头
+            self.import_vars_table.setColumnCount(len(header))
+            self.import_vars_table.setHorizontalHeaderLabels(header)
+
+            for row_idx in range(min(5, total_rows)):
+                for col_idx, name in enumerate(header):
+                    val = var_data[name][row_idx] if row_idx < len(var_data[name]) else ""
+                    item = QTableWidgetItem(val)
+                    self.import_vars_table.setItem(row_idx + 1, col_idx, item)
+
+            # 第一行用灰色背景标识表头预览
+            for col_idx, name in enumerate(header):
+                item = QTableWidgetItem(f"{{{name}}}")
+                item.setBackground(QBrush(QColor("#FFF3E0")))
+                self.import_vars_table.setItem(0, col_idx, item)
 
         except Exception as e:
             QMessageBox.critical(self, "错误", f"导入失败: {str(e)}")
+
+    def clear_imported_vars(self):
+        """清除已导入的变量"""
+        self.input_vars = {}
+        self.hint_label.setText("可用变量: {原名}  {序号}  {序号:02d}  {日期}  {页码范围}  {标题}")
+        self.label_import_info.setText("未导入变量，导入Excel后列名将作为变量名")
+        self.label_import_info.setStyleSheet("color: #999;")
+        self.btn_clear_import.setVisible(False)
+        self.import_vars_table.setVisible(False)
 
     # ===== 拆分方式切换 =====
     def on_rule_changed(self, index):
@@ -5361,6 +5428,41 @@ class DocSplitPage(QWidget):
             self._update_buttons()
 
     # ===== 预览 =====
+    def _preview_format_name(self, template, source_path, index, page_group=None, title=""):
+        """预览用的命名格式化，与 SplitWorker.format_name 保持一致"""
+        name_without_ext = os.path.splitext(os.path.basename(source_path))[0]
+        now = datetime.now()
+
+        page_range_str = ""
+        if page_group:
+            pages = list(page_group)
+            if pages:
+                page_range_str = f"{pages[0]}-{pages[-1]}"
+
+        result = template
+        result = result.replace("{原名}", name_without_ext)
+        result = result.replace("{序号}", str(index))
+        result = result.replace("{日期}", now.strftime("%Y%m%d"))
+        result = result.replace("{页码范围}", page_range_str)
+        result = result.replace("{标题}", title if title else f"第{index}部分")
+
+        # 替换导入的变量
+        for var_name, values in self.input_vars.items():
+            placeholder = f"{{{var_name}}}"
+            if placeholder in result:
+                if index <= len(values):
+                    result = result.replace(placeholder, values[index - 1])
+                else:
+                    result = result.replace(placeholder, f"缺失{index}")
+
+        # 处理{序号:格式}
+        fmt_matches = re.findall(r'\{序号:(\w+)\}', result)
+        for fmt in fmt_matches:
+            formatted = format(index, fmt)
+            result = result.replace(f"{{序号:{fmt}}}", formatted)
+
+        return result
+
     def preview_split(self):
         if not self.file_list_data:
             QMessageBox.warning(self, "提示", "请先选择文件！")
@@ -5373,6 +5475,15 @@ class DocSplitPage(QWidget):
         rule = self._get_rule_key()
         params = self._get_params()
         rule_name = self.rule_combo.currentText()
+        naming_template = self.edit_naming.text() or "{原名}_第{序号}部分"
+
+        # 显示命名模板
+        self.result_text.append(f"📝 命名模板: {naming_template}\n")
+        if self.input_vars:
+            var_names = list(self.input_vars.keys())
+            total_rows = max(len(v) for v in self.input_vars.values())
+            self.result_text.append(f"📋 已导入变量: {', '.join(var_names)} ({total_rows}行数据)\n")
+        self.result_text.append("\n")
 
         for file_path in self.file_list_data:
             ext = os.path.splitext(file_path)[1].lower()
@@ -5393,8 +5504,11 @@ class DocSplitPage(QWidget):
                         for i in range(count):
                             start = i * n + 1
                             end = min((i + 1) * n, total_pages)
+                            page_group = list(range(start, end + 1))
+                            fname = self._preview_format_name(
+                                naming_template, file_path, i + 1, page_group)
                             self.result_text.append(
-                                f"   文件{i+1}: 第{start}-{end}页\n")
+                                f"   文件{i+1}: 第{start}-{end}页 → {fname}.pdf\n")
 
                     elif rule == "by_custom_pages":
                         range_str = params.get('page_ranges', '')
@@ -5404,8 +5518,10 @@ class DocSplitPage(QWidget):
                         for i, grp in enumerate(groups):
                             valid = [p for p in grp if 1 <= p <= total_pages]
                             if valid:
+                                fname = self._preview_format_name(
+                                    naming_template, file_path, i + 1, valid)
                                 self.result_text.append(
-                                    f"   文件{i+1}: 第{valid[0]}-{valid[-1]}页\n")
+                                    f"   文件{i+1}: 第{valid[0]}-{valid[-1]}页 → {fname}.pdf\n")
 
                     elif rule == "by_bookmark":
                         outlines = reader.outline
@@ -5425,6 +5541,14 @@ class DocSplitPage(QWidget):
                         count = (total_pages + pages_per - 1) // pages_per
                         self.result_text.append(
                             f"   拆分方式: 每~{target_mb}MB → 约{count}个文件\n")
+                        for i in range(count):
+                            start = i * pages_per + 1
+                            end = min((i + 1) * pages_per, total_pages)
+                            page_group = list(range(start, end + 1))
+                            fname = self._preview_format_name(
+                                naming_template, file_path, i + 1, page_group)
+                            self.result_text.append(
+                                f"   文件{i+1}: 第{start}-{end}页 → {fname}.pdf\n")
 
                 elif ext == '.docx':
                     if not HAS_PYTHON_DOCX:
@@ -5461,8 +5585,11 @@ class DocSplitPage(QWidget):
                         for i in range(count):
                             start = i * n + 1
                             end = min((i + 1) * n, est_pages)
+                            page_group = list(range(start, end + 1))
+                            fname = self._preview_format_name(
+                                naming_template, file_path, i + 1, page_group)
                             self.result_text.append(
-                                f"   文件{i+1}: 第{start}-{end}页\n")
+                                f"   文件{i+1}: 第{start}-{end}页 → {fname}.docx\n")
 
                     elif rule == "by_custom_pages":
                         range_str = params.get('page_ranges', '')
@@ -5472,8 +5599,10 @@ class DocSplitPage(QWidget):
                         for i, grp in enumerate(groups):
                             valid = [p for p in grp if 1 <= p <= est_pages]
                             if valid:
+                                fname = self._preview_format_name(
+                                    naming_template, file_path, i + 1, valid)
                                 self.result_text.append(
-                                    f"   文件{i+1}: 第{valid[0]}-{valid[-1]}页\n")
+                                    f"   文件{i+1}: 第{valid[0]}-{valid[-1]}页 → {fname}.docx\n")
 
                     elif rule == "by_heading":
                         for para in doc.paragraphs:
@@ -5496,6 +5625,11 @@ class DocSplitPage(QWidget):
                                 count = (row_count + n - 1) // n
                                 self.result_text.append(
                                     f"   {sn}: {row_count}行数据 → {count}个文件\n")
+                                for i in range(count):
+                                    fname = self._preview_format_name(
+                                        naming_template, file_path, i + 1)
+                                    self.result_text.append(
+                                        f"      文件{i+1} → {fname}.xlsx\n")
 
                     elif rule == "by_sheet":
                         n = params.get('sheets_per_split', 1)
@@ -5506,8 +5640,10 @@ class DocSplitPage(QWidget):
                             start = i * n
                             end = min((i + 1) * n, len(sheet_names))
                             sheets = sheet_names[start:end]
+                            fname = self._preview_format_name(
+                                naming_template, file_path, i + 1)
                             self.result_text.append(
-                                f"   文件{i+1}: {', '.join(sheets)}\n")
+                                f"   文件{i+1}: {', '.join(sheets)} → {fname}.xlsx\n")
 
                     wb.close()
 
@@ -5574,10 +5710,10 @@ class DocSplitPage(QWidget):
             QMessageBox.warning(self, "提示", "请输入页码范围！")
             return
 
-        # 校验：如果命名模板中使用了{输入}，检查变量个数
-        uses_input_var = "{输入}" in naming_template
-        if uses_input_var and not self.input_names:
-            QMessageBox.warning(self, "提示", "命名模板中使用了{输入}变量，请先导入命名变量！")
+        # 校验：如果命名模板中使用了导入变量，检查是否已导入
+        uses_imported = any(f"{{{name}}}" in naming_template for name in self.input_vars)
+        if uses_imported and not self.input_vars:
+            QMessageBox.warning(self, "提示", "命名模板中使用了导入变量，请先导入Excel变量文件！")
             return
 
         self.btn_split.setEnabled(False)
@@ -5592,7 +5728,7 @@ class DocSplitPage(QWidget):
         self.split_worker = SplitWorker(
             self.file_list_data, rule, params,
             output_dir, naming_template, "original",
-            input_names=self.input_names if uses_input_var else []
+            input_vars=self.input_vars if uses_imported else {}
         )
         self.split_worker.progress_updated.connect(self.on_progress)
         self.split_worker.split_completed.connect(self.on_split_completed)
@@ -5641,16 +5777,17 @@ class DocSplitPage(QWidget):
         self.progress.setVisible(False)
 
     def on_needs_input_count(self, total_count):
-        """拆分文件个数与输入变量个数不匹配时的回调"""
+        """拆分文件个数与导入变量行数不匹配时的回调"""
         self.btn_split.setEnabled(True)
         self.btn_preview.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.progress.setVisible(False)
+        total_rows = max(len(v) for v in self.input_vars.values()) if self.input_vars else 0
         QMessageBox.warning(
-            self, "命名变量不匹配",
-            f"命名部分输入的变量个数与拆分后文件个数不匹配，请检查输入变量个数\n\n"
+            self, "变量行数不匹配",
+            f"导入的变量行数与拆分后文件个数不匹配，请检查Excel数据行数\n\n"
             f"拆分后文件数: {total_count}\n"
-            f"已导入变量数: {len(self.input_names)}")
+            f"已导入变量行数: {total_rows}")
 
 
 try:

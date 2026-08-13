@@ -1,0 +1,50 @@
+# AI 工具配置（含密钥、会话记录等敏感信息）
+.trae/
+.trae-cn/
+.cursor/
+.aider*
+.copilot/
+.codeium/
+
+# 环境变量与密钥
+.env
+.env.*
+*.key
+*.pem
+*.p12
+credentials.json
+secrets.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+venv/
+env/
+*.spec
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 构建产物与日志
+build_log*.txt
+*.log
+
+# 打包输出
+*.exe
+*.msi
