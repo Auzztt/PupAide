@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QLineEdit, QSplitter, QTabWidget, QComboBox, QFormLayout,
                              QSlider, QColorDialog, QAbstractItemView, QSpinBox,
                              QTreeWidget, QTreeWidgetItem, QHeaderView, QTableWidget, QTableWidgetItem, QStyle, QDialog)
-from PyQt6.QtGui import QBrush, QIcon, QColor
+from PyQt6.QtGui import QBrush, QIcon, QColor, QPixmap, QPainter
 import subprocess
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
@@ -23,11 +23,17 @@ import os
 import hashlib
 import shutil
 from PyQt6.QtCore import Qt
-from PyQt6.QtCore import QThread, pyqtSignal, QSize
+from PyQt6.QtCore import QThread, pyqtSignal, QSize, QByteArray, QRectF
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QAbstractItemView
 import matplotlib
 matplotlib.use('Qt5Agg')
+try:
+    from PyQt6.QtSvg import QSvgRenderer
+    HAS_QTSVG = True
+except ImportError:
+    HAS_QTSVG = False
+
 try:
     from docx import Document as DocxDocument
     HAS_PYTHON_DOCX = True
@@ -46,92 +52,311 @@ except ImportError:
 qApp = None
 
 
+# ========== SVG 线性轮廓图标系统 (2px描边, 无填充, 圆角) ==========
+# Lucide 风格图标路径数据
+_NAV_ICONS = [
+    # 重复文件查找器 - copy图标
+    '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    # 文件夹同步/备份 - refresh图标
+    '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/>',
+    # 磁盘空间分析器 - pie-chart图标
+    '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
+    # 文件批量筛选 - filter图标
+    '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
+    # 文件名称提取器 - scissors图标
+    '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>',
+    # 文档拆分工具 - columns图标
+    '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/>',
+    # 文本重复识别 - repeat图标
+    '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+]
+
+# 右上角图标
+_ICON_PERSON = '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'
+_ICON_INFO = '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>'
+
+
+def _create_outline_icon(svg_paths, size=18, color="#8E8E8E"):
+    """从SVG路径创建线性轮廓QIcon（2px描边, 无填充, 圆角）"""
+    if not HAS_QTSVG:
+        return QIcon()
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="24px" height="24px" '
+        f'viewBox="0 0 24 24" fill="none" stroke="{color}" '
+        f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{svg_paths}</svg>'
+    )
+    renderer = QSvgRenderer(QByteArray(svg.encode('utf-8')))
+    if not renderer.isValid():
+        return QIcon()
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderer.render(painter, QRectF(0, 0, size, size))
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_icon_pixmap(svg_paths, size, color):
+    """直接返回QPixmap，用于QLabel显示"""
+    if not HAS_QTSVG:
+        return QPixmap()
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="24px" height="24px" '
+        f'viewBox="0 0 24 24" fill="none" stroke="{color}" '
+        f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{svg_paths}</svg>'
+    )
+    renderer = QSvgRenderer(QByteArray(svg.encode('utf-8')))
+    if not renderer.isValid():
+        return QPixmap()
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderer.render(painter, QRectF(0, 0, size, size))
+    painter.end()
+    return pixmap
+
+
 class PupAideMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("小狗助理 PupAide - 办公百宝箱")
         self.setMinimumSize(1200, 800)
 
-        # 设置主窗口样式
+        # 设置主窗口样式 - Goink UI 风格
+        # 主色: #6C7BF2 (goink primary: oklch(0.546 0.245 262.881))
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #f5f5f5;
+                background-color: #f8f9fa;
             }
             QPushButton {
-                background-color: #FFB347;
-                color: white;
+                background-color: #6C7BF2;
+                color: #ffffff;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
-                font-weight: bold;
+                border-radius: 8px;
+                padding: 4px 10px;
+                min-height: 24px;
+                font-weight: 500;
+                font-size: 13px;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
-            /* 为 QMessageBox 中的按钮单独设置样式 */
+            QPushButton:pressed {
+                background-color: #5A69E0;
+            }
+            QPushButton:disabled {
+                background-color: #C5CAF8;
+                color: #E8E9F0;
+            }
             QMessageBox QPushButton {
-                background-color: #f0f0f0;
-                color: #333;
-                border: 1px solid #ccc;
-                padding: 6px 12px;
-                min-height: 28px;
+                background-color: #F5F5F5;
+                color: #2E2E2E;
+                border: 1px solid #E5E5E5;
+                padding: 4px 10px;
+                min-height: 24px;
+                border-radius: 8px;
             }
             QMessageBox QPushButton:hover {
-                background-color: #e0e0e0;
+                background-color: #E5E5E5;
             }
 
             QListWidget {
-                border: 1px solid #ddd;
-                border-radius: 6px;
+                border: 1px solid #E5E5E5;
+                border-radius: 8px;
                 background-color: white;
+                outline: none;
             }
             QListWidget::item {
-                padding: 10px 8px;
+                padding: 6px 10px;
+                border-radius: 5px;
+                margin: 1px 3px;
             }
             QListWidget::item:selected {
-                background-color: #FFB347;
-                color: white;
+                background-color: #6C7BF2;
+                color: #ffffff;
+            }
+            QListWidget::item:hover:!selected {
+                background-color: #F5F5F5;
             }
             QGroupBox {
-                font-weight: bold;
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                margin-top: 10px;
-                padding-top: 10px;
+                font-weight: 600;
+                border: 1px solid #E5E5E5;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 12px;
+                color: #1A1A1A;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
-                padding: 0 5px 0 5px;
+                padding: 0 6px;
             }
             QTextEdit {
-                border: 1px solid #ddd;
+                border: 1px solid #E5E5E5;
                 border-radius: 6px;
-                font-family: monospace;
+                font-family: 'Consolas', 'Microsoft YaHei', monospace;
+                font-size: 13px;
+                padding: 6px;
+                background-color: white;
+            }
+            QTextEdit:focus {
+                border-color: #6C7BF2;
             }
             QLineEdit {
-                padding: 8px;
-                border: 1px solid #ddd;
+                padding: 6px 10px;
+                border: 1px solid #E5E5E5;
                 border-radius: 6px;
-                min-height: 30px;
+                min-height: 24px;
+                background-color: white;
+                color: #1A1A1A;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border-color: #6C7BF2;
             }
             QProgressBar {
-                border: 1px solid #ddd;
+                border: 1px solid #E5E5E5;
                 border-radius: 6px;
                 text-align: center;
-                min-height: 25px;
+                min-height: 20px;
+                background-color: #F5F5F5;
+                font-size: 11px;
+                color: #8E8E8E;
             }
             QProgressBar::chunk {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 border-radius: 5px;
             }
             QSplitter::handle {
-                background-color: #ddd;
-                width: 4px;
+                background-color: #E5E5E5;
+                width: 2px;
             }
             QSplitter::handle:hover {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
+            }
+            QComboBox {
+                padding: 4px 10px;
+                border: 1px solid #E5E5E5;
+                border-radius: 6px;
+                min-height: 24px;
+                background-color: white;
+                font-size: 13px;
+            }
+            QComboBox:focus {
+                border-color: #6C7BF2;
+            }
+            QSpinBox {
+                padding: 4px 10px;
+                border: 1px solid #E5E5E5;
+                border-radius: 6px;
+                min-height: 24px;
+                background-color: white;
+            }
+            QSpinBox:focus {
+                border-color: #6C7BF2;
+            }
+            QTabWidget::pane {
+                border: 1px solid #E5E5E5;
+                border-radius: 8px;
+                background-color: white;
+            }
+            QTabBar::tab {
+                padding: 5px 14px;
+                border: 1px solid #E5E5E5;
+                border-bottom: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                background-color: #F5F5F5;
+                color: #8E8E8E;
+                font-weight: 500;
+                font-size: 13px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: white;
+                color: #6C7BF2;
+                border-bottom: 2px solid #6C7BF2;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #E5E5E5;
+            }
+            QTableWidget {
+                border: 1px solid #E5E5E5;
+                border-radius: 8px;
+                gridline-color: #F5F5F5;
+                background-color: white;
+            }
+            QTableWidget::item {
+                padding: 3px 6px;
+            }
+            QHeaderView::section {
+                background-color: #F5F5F5;
+                color: #1A1A1A;
+                padding: 4px 6px;
+                border: none;
+                border-bottom: 2px solid #E5E5E5;
+                font-weight: 600;
+            }
+            QCheckBox {
+                spacing: 6px;
+                color: #1A1A1A;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 3px;
+                border: 2px solid #B0B0B0;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #6C7BF2;
+                border-color: #6C7BF2;
+            }
+            QRadioButton {
+                spacing: 6px;
+                color: #1A1A1A;
+            }
+            QRadioButton::indicator {
+                width: 16px;
+                height: 16px;
+                border: 2px solid #B0B0B0;
+            }
+            QRadioButton::indicator:checked {
+                border-color: #6C7BF2;
+                background-color: #6C7BF2;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 6px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical {
+                background: #E5E5E5;
+                border-radius: 3px;
+                min-height: 24px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #8E8E8E;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+            QScrollBar:horizontal {
+                background: transparent;
+                height: 6px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #E5E5E5;
+                border-radius: 3px;
+                min-width: 30px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #8E8E8E;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0;
             }
         """)
 
@@ -151,103 +376,106 @@ class PupAideMainWindow(QMainWindow):
         left_panel = QFrame()
         left_panel.setStyleSheet("""
             QFrame {
-                background-color: white;
-                border-radius: 8px;
-                border: 1px solid #ddd;
+                background-color: #F8F8F8;
+                border: none;
+                border-right: 1px solid #E5E5E5;
             }
         """)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(15, 20, 15, 20)
+        left_layout.setContentsMargins(12, 16, 12, 16)
 
         # 标题
-        title_label = QLabel("🐕 小狗助理")
+        title_label = QLabel("小狗助理")
         title_font = QFont()
-        title_font.setPointSize(20)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("color: #FFB347; margin-bottom: 20px;")
+        title_label.setStyleSheet("color: #6C7BF2; margin-bottom: 12px;")
         title_label.setWordWrap(True)
         left_layout.addWidget(title_label)
 
         # 功能列表
         self.nav_list = QListWidget()
         list_font = QFont()
-        list_font.setPointSize(15)
+        list_font.setPointSize(10)
         self.nav_list.setFont(list_font)
         functions = [
-            "📁 重复文件查找器",
-            "🔄 文件夹同步/备份",
-            "💾 磁盘空间分析器",
-            "📄 PDF 批量处理",
-            "📂 文件批量筛选",
-            "🔍 OCR 文字识别工具",
-            "✂️ 文件名称提取器",  # 0422新增功能
-            "📑 文档拆分工具",
-            "🔁 文本重复识别"
+            "重复文件查找器",
+            "文件夹同步/备份",
+            "磁盘空间分析器",
+            "文件批量筛选",
+            "文件名称提取器",
+            "文档拆分工具",
+            "文本重复识别"
         ]
-        for func in functions:
+        for i, func in enumerate(functions):
             item = QListWidgetItem(func)
-            item.setSizeHint(QSize(0, 45))
+            item.setSizeHint(QSize(0, 36))
+            if HAS_QTSVG:
+                item.setIcon(_create_outline_icon(_NAV_ICONS[i], 16, "#8E8E8E"))
             self.nav_list.addItem(item)
         left_layout.addWidget(self.nav_list)
-
-        # 底部信息
-        bottom_layout = QHBoxLayout()
-        info_label = QLabel("版本 1.2.1")
-        info_font = QFont()
-        info_font.setPointSize(13)
-        info_label.setFont(info_font)
-        info_label.setStyleSheet("color: #999;")
-        info_label.setWordWrap(True)
-        bottom_layout.addWidget(info_label)
-
-        btn_settings = QPushButton("···")
-        btn_settings.setObjectName("settingsBtn")
-        btn_settings.setFixedSize(36, 24)
-        btn_settings.setToolTip("神秘按钮")
-        btn_settings.clicked.connect(self._open_easter_egg_settings)
-        btn_settings_font = QFont()
-        btn_settings_font.setPointSize(12)
-        btn_settings_font.setBold(True)
-        btn_settings.setFont(btn_settings_font)
-        btn_settings.setStyleSheet("""
-            QPushButton#settingsBtn {
-                background-color: #f0f0f0;
-                color: #999;
-                border: 1px solid #ddd;
-                border-radius: 12px;
-                padding: 0px;
-                min-height: 0px;
-                font-weight: bold;
-            }
-            QPushButton#settingsBtn:hover {
-                color: #FFB347;
-                background-color: #fff3e0;
-                border-color: #FFB347;
-            }
-        """)
-        bottom_layout.addWidget(btn_settings)
-        bottom_layout.addStretch()
-        left_layout.addLayout(bottom_layout)
-
-        # tip_label = QLabel("拖动右侧边缘可调整菜单宽度")
-        # tip_font = QFont()
-        # tip_font.setPointSize(11)
-        # tip_label.setFont(tip_font)
-        # tip_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # tip_label.setStyleSheet("color: #bbb;")
-        # tip_label.setWordWrap(True)
-        # left_layout.addWidget(tip_label)
+        self.nav_list.setCurrentRow(0)
         left_layout.addStretch()
 
         # ========== 右侧内容区域 ==========
+        # 右侧容器：顶部栏 + 内容面板
+        right_container = QWidget()
+        right_vlayout = QVBoxLayout(right_container)
+        right_vlayout.setContentsMargins(0, 0, 0, 0)
+        right_vlayout.setSpacing(6)
+
+        # 顶部栏：版本信息 + 设置按钮（右对齐）
+        top_bar = QHBoxLayout()
+        top_bar.addStretch()
+
+        # 版本图标 + 版本号（用 QLabel 显示，避免 QPushButton 图标裁剪问题）
+        if HAS_QTSVG:
+            ver_icon = QLabel()
+            ver_icon.setPixmap(_make_icon_pixmap(_ICON_INFO, 16, "#8E8E8E"))
+            ver_icon.setFixedSize(16, 16)
+            ver_icon.setStyleSheet("border: none; background: transparent;")
+            top_bar.addWidget(ver_icon)
+
+        version_label = QLabel("v1.2.1")
+        version_font = QFont()
+        version_font.setPointSize(9)
+        version_label.setFont(version_font)
+        version_label.setStyleSheet("color: #8E8E8E; border: none; background: transparent; padding: 2px 6px 2px 2px;")
+        top_bar.addWidget(version_label)
+
+        # 设置按钮（带小人图标）
+        btn_settings = QPushButton()
+        btn_settings.setObjectName("settingsBtn")
+        btn_settings.setFixedSize(34, 30)
+        btn_settings.setToolTip("设置")
+        btn_settings.clicked.connect(self._open_easter_egg_settings)
+        if HAS_QTSVG:
+            btn_settings.setIcon(_create_outline_icon(_ICON_PERSON, 16, "#8E8E8E"))
+            btn_settings.setIconSize(QSize(16, 16))
+        btn_settings.setStyleSheet("""
+            QPushButton#settingsBtn {
+                background-color: transparent;
+                border: none;
+                border-radius: 6px;
+                padding: 0px;
+                min-height: 0px;
+            }
+            QPushButton#settingsBtn:hover {
+                background-color: #F5F5F5;
+            }
+        """)
+        top_bar.addWidget(btn_settings)
+        right_vlayout.addLayout(top_bar)
+
+        # 内容面板
         self.right_panel = QStackedWidget()
         self.right_panel.setStyleSheet("""
-            QWidget {
+            QStackedWidget {
                 background-color: white;
-                border-radius: 8px;
-                border: 1px solid #ddd;
+                border-radius: 10px;
+                border: 1px solid #E5E5E5;
             }
         """)
 
@@ -255,33 +483,31 @@ class PupAideMainWindow(QMainWindow):
         self.page_duplicate = DuplicateFilePage()
         self.page_sync = SyncBackupPage()
         self.page_disk = DiskAnalyzerPage()
-        self.page_pdf = PDFBatchPage()
         self.page_office = OfficeBatchPage()
-        self.page_ocr = OCRPage()
-        self.page_namecut = FileNameCut()  # 新增功能页面实例
-        self.page_docsplit = DocSplitPage()  # 文档拆分页面实例
-        self.page_textdup = TextDuplicatePage()  # 文本重复识别页面实例
+        self.page_namecut = FileNameCut()
+        self.page_docsplit = DocSplitPage()
+        self.page_textdup = TextDuplicatePage()
 
         self.right_panel.addWidget(self.page_duplicate)
         self.right_panel.addWidget(self.page_sync)
         self.right_panel.addWidget(self.page_disk)
-        self.right_panel.addWidget(self.page_pdf)
         self.right_panel.addWidget(self.page_office)
-        self.right_panel.addWidget(self.page_ocr)
-        self.right_panel.addWidget(self.page_namecut)  # 新增功能页面添加到右侧面板
-        self.right_panel.addWidget(self.page_docsplit)  # 文档拆分页面添加到右侧面板
-        self.right_panel.addWidget(self.page_textdup)  # 文本重复识别页面添加到右侧面板
+        self.right_panel.addWidget(self.page_namecut)
+        self.right_panel.addWidget(self.page_docsplit)
+        self.right_panel.addWidget(self.page_textdup)
 
         # 添加导航栏点击事件
         self.nav_list.currentRowChanged.connect(
             self.right_panel.setCurrentIndex)
 
+        right_vlayout.addWidget(self.right_panel)
+
         # 将左右面板添加到分割器
         self.splitter.addWidget(left_panel)
-        self.splitter.addWidget(self.right_panel)
+        self.splitter.addWidget(right_container)
 
         # 设置初始大小比例
-        self.splitter.setSizes([250, 800])
+        self.splitter.setSizes([200, 850])
 
         # 添加到主布局
         main_layout.addWidget(self.splitter)
@@ -313,17 +539,18 @@ class DuplicateFilePage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # 标题
-        title = QLabel("📁 重复文件查找器")
+        title = QLabel("重复文件查找器")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
 
         # 文件夹选择区域
         folder_group = QGroupBox("选择要扫描的文件夹")
+        folder_group.setObjectName("contentGroup")
         group_font = QFont()
-        group_font.setPointSize(15)
+        group_font.setPointSize(11)
         folder_group.setFont(group_font)
         folder_layout = QVBoxLayout(folder_group)
         folder_layout.setSpacing(10)
@@ -332,30 +559,30 @@ class DuplicateFilePage(QWidget):
         path_layout = QHBoxLayout()
         self.folder_path = QLineEdit()
         path_font = QFont()
-        path_font.setPointSize(13)
+        path_font.setPointSize(10)
         self.folder_path.setFont(path_font)
         self.folder_path.setPlaceholderText("请选择文件夹...")
         self.folder_path.setReadOnly(True)
 
         # 选择文件夹按钮
-        btn_select = QPushButton("📂 选择文件夹")
+        btn_select = QPushButton("选择文件夹")
         btn_select.setMinimumWidth(130)
         btn_select.clicked.connect(self.select_folder)
 
         # 确保文本显示
         btn_select.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
@@ -386,7 +613,7 @@ class DuplicateFilePage(QWidget):
         button_layout.setSpacing(15)
 
         # 扫描按钮
-        self.btn_scan = QPushButton("🔍 开始扫描")
+        self.btn_scan = QPushButton("开始扫描")
         self.btn_scan.setMinimumWidth(130)
         self.btn_scan.clicked.connect(self.scan_files)
         self.btn_scan.setEnabled(False)
@@ -394,39 +621,39 @@ class DuplicateFilePage(QWidget):
         # 确保文本显示
         self.btn_scan.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
         # 清空按钮
-        self.btn_clear = QPushButton("🗑️ 清空结果")
+        self.btn_clear = QPushButton("清空结果")
         self.btn_clear.setMinimumWidth(120)
         self.btn_clear.clicked.connect(self.clear_results)
 
         # 确保文本显示
         self.btn_clear.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
@@ -441,6 +668,7 @@ class DuplicateFilePage(QWidget):
 
         # 结果显示区域
         result_group = QGroupBox("扫描结果")
+        result_group.setObjectName("contentGroup")
         result_group.setFont(group_font)
         result_layout = QVBoxLayout(result_group)
 
@@ -463,13 +691,13 @@ class DuplicateFilePage(QWidget):
             self.folder_path.setText(folder)
             self.btn_scan.setEnabled(True)
             self.result_text.clear()
-            self.result_text.append(f"✅ 已选择文件夹: {folder}\n")
+            self.result_text.append(f"[完成] 已选择文件夹: {folder}\n")
             self.result_text.append("点击「开始扫描」查找重复文件...\n")
 
     def clear_results(self):
         self.result_text.clear()
         if self.scan_folder:
-            self.result_text.append(f"✅ 已选择文件夹: {self.scan_folder}\n")
+            self.result_text.append(f"[完成] 已选择文件夹: {self.scan_folder}\n")
             self.result_text.append("点击「开始扫描」查找重复文件...\n")
 
     def scan_files(self):
@@ -481,7 +709,7 @@ class DuplicateFilePage(QWidget):
         self.progress.setVisible(True)
         self.progress.setValue(0)
         self.result_text.clear()
-        self.result_text.append(f"🔍 正在扫描文件夹: {self.scan_folder}\n")
+        self.result_text.append(f"正在扫描文件夹: {self.scan_folder}\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         try:
@@ -501,13 +729,13 @@ class DuplicateFilePage(QWidget):
                         total_files += 1
 
             if total_files == 0:
-                self.result_text.append("❌ 没有找到任何文件\n")
+                self.result_text.append("[错误] 没有找到任何文件\n")
                 self.progress.setVisible(False)
                 self.btn_scan.setEnabled(True)
                 return
 
             self.progress.setValue(50)
-            self.result_text.append(f"📊 找到 {total_files} 个文件，正在分析...\n\n")
+            self.result_text.append(f"找到 {total_files} 个文件，正在分析...\n\n")
 
             # 计算文件哈希
             scanned = 0
@@ -567,19 +795,19 @@ class DuplicateFilePage(QWidget):
                     else:
                         size_str = f"{size_kb:.2f} KB"
 
-                    self.result_text.append(f"📄 {filename} ({size_str})\n")
+                    self.result_text.append(f"{filename} ({size_str})\n")
                     for path in paths:
                         self.result_text.append(f"   └─ {path}\n")
                     self.result_text.append("\n")
 
             if not duplicates_found:
-                self.result_text.append("✅ 扫描完成！没有找到重复文件！\n")
+                self.result_text.append("[完成] 扫描完成！没有找到重复文件！\n")
             else:
                 self.result_text.append(
-                    f"\n✅ 扫描完成！共找到 {len([k for k,v in file_dict.items() if len(v)>1])} 组重复文件\n")
+                    f"\n[完成] 扫描完成！共找到 {len([k for k,v in file_dict.items() if len(v)>1])} 组重复文件\n")
 
         except Exception as e:
-            self.result_text.append(f"❌ 扫描过程中发生错误：{str(e)}\n")
+            self.result_text.append(f"[错误] 扫描过程中发生错误：{str(e)}\n")
 
         self.progress.setVisible(False)
         self.btn_scan.setEnabled(True)
@@ -594,17 +822,18 @@ class SyncBackupPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # 标题
-        title = QLabel("🔄 文件夹同步/备份工具")
+        title = QLabel("文件夹同步/备份工具")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
 
         # 源文件夹选择
         source_group = QGroupBox("源文件夹（要备份的文件夹）")
+        source_group.setObjectName("contentGroup")
         group_font = QFont()
-        group_font.setPointSize(15)
+        group_font.setPointSize(11)
         source_group.setFont(group_font)
         source_layout = QVBoxLayout(source_group)
         source_layout.setSpacing(10)
@@ -614,22 +843,22 @@ class SyncBackupPage(QWidget):
         self.source_path.setPlaceholderText("请选择要备份的源文件夹...")
         self.source_path.setReadOnly(True)
 
-        self.btn_source = QPushButton("📂 选择源文件夹")
+        self.btn_source = QPushButton("选择源文件夹")
         self.btn_source.setMinimumWidth(130)
         self.btn_source.clicked.connect(self.select_source_folder)
         self.btn_source.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
@@ -640,6 +869,7 @@ class SyncBackupPage(QWidget):
 
         # 目标文件夹选择
         target_group = QGroupBox("目标文件夹（备份保存位置）")
+        target_group.setObjectName("contentGroup")
         target_group.setFont(group_font)
         target_layout = QVBoxLayout(target_group)
         target_layout.setSpacing(10)
@@ -649,22 +879,22 @@ class SyncBackupPage(QWidget):
         self.target_path.setPlaceholderText("请选择备份保存的目标文件夹...")
         self.target_path.setReadOnly(True)
 
-        self.btn_target = QPushButton("📂 选择目标文件夹")
+        self.btn_target = QPushButton("选择目标文件夹")
         self.btn_target.setMinimumWidth(130)
         self.btn_target.clicked.connect(self.select_target_folder)
         self.btn_target.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
@@ -705,43 +935,43 @@ class SyncBackupPage(QWidget):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(15)
 
-        self.btn_sync = QPushButton("🔄 开始同步")
+        self.btn_sync = QPushButton("开始同步")
         self.btn_sync.setMinimumWidth(130)
         self.btn_sync.clicked.connect(self.start_sync)
         self.btn_sync.setEnabled(False)
         self.btn_sync.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
-        self.btn_preview = QPushButton("👁️ 预览同步")
+        self.btn_preview = QPushButton("预览同步")
         self.btn_preview.setMinimumWidth(120)
         self.btn_preview.clicked.connect(self.preview_sync)
         self.btn_preview.setEnabled(False)
         self.btn_preview.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
@@ -756,6 +986,7 @@ class SyncBackupPage(QWidget):
 
         # 结果显示区域
         result_group = QGroupBox("同步日志")
+        result_group.setObjectName("contentGroup")
         result_group.setFont(group_font)
         result_layout = QVBoxLayout(result_group)
 
@@ -810,7 +1041,7 @@ class SyncBackupPage(QWidget):
             return
 
         self.result_text.clear()
-        self.result_text.append("🔍 正在分析同步内容...\n")
+        self.result_text.append("正在分析同步内容...\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         # 获取需要同步的文件列表
@@ -833,7 +1064,7 @@ class SyncBackupPage(QWidget):
                     if os.path.isfile(full_path):
                         source_files[item] = full_path
         except Exception as e:
-            self.result_text.append(f"❌ 扫描源文件夹失败：{str(e)}\n")
+            self.result_text.append(f"[错误] 扫描源文件夹失败：{str(e)}\n")
             return
 
         # 检查哪些文件需要复制
@@ -864,16 +1095,16 @@ class SyncBackupPage(QWidget):
                         if os.path.isfile(full_path) and item not in source_files:
                             files_to_delete.append(item)
             except Exception as e:
-                self.result_text.append(f"❌ 扫描目标文件夹失败：{str(e)}\n")
+                self.result_text.append(f"[错误] 扫描目标文件夹失败：{str(e)}\n")
 
         # 显示预览结果
-        self.result_text.append(f"📊 同步预览结果：\n")
+        self.result_text.append(f"同步预览结果：\n")
         self.result_text.append(f"源文件夹: {self.source_folder}\n")
         self.result_text.append(f"目标文件夹: {self.target_folder}\n\n")
 
         if files_to_copy:
             self.result_text.append(
-                f"📁 需要复制/更新的文件 ({len(files_to_copy)} 个):\n")
+                f"需要复制/更新的文件 ({len(files_to_copy)} 个):\n")
             for f in files_to_copy[:20]:
                 self.result_text.append(f"   └─ {f}\n")
             if len(files_to_copy) > 20:
@@ -881,11 +1112,11 @@ class SyncBackupPage(QWidget):
                     f"   ... 还有 {len(files_to_copy)-20} 个文件\n")
             self.result_text.append("\n")
         else:
-            self.result_text.append("✅ 没有需要复制或更新的文件\n\n")
+            self.result_text.append("[完成] 没有需要复制或更新的文件\n\n")
 
         if files_to_delete:
             self.result_text.append(
-                f"🗑️ 需要删除的文件 ({len(files_to_delete)} 个):\n")
+                f"需要删除的文件 ({len(files_to_delete)} 个):\n")
             for f in files_to_delete[:20]:
                 self.result_text.append(f"   └─ {f}\n")
             if len(files_to_delete) > 20:
@@ -893,10 +1124,10 @@ class SyncBackupPage(QWidget):
                     f"   ... 还有 {len(files_to_delete)-20} 个文件\n")
             self.result_text.append("\n")
         elif self.check_delete.isChecked():
-            self.result_text.append("✅ 没有需要删除的文件\n\n")
+            self.result_text.append("[完成] 没有需要删除的文件\n\n")
 
         if not files_to_copy and not files_to_delete:
-            self.result_text.append("🎉 文件夹已经同步完成，无需任何操作！\n")
+            self.result_text.append("文件夹已经同步完成，无需任何操作！\n")
 
     def start_sync(self):
         if not self.source_folder or not self.target_folder:
@@ -915,7 +1146,7 @@ class SyncBackupPage(QWidget):
         self.progress.setVisible(True)
         self.progress.setValue(0)
         self.result_text.clear()
-        self.result_text.append("🔄 开始同步...\n")
+        self.result_text.append("开始同步...\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         try:
@@ -935,7 +1166,7 @@ class SyncBackupPage(QWidget):
                         if os.path.isfile(full_path):
                             source_files[item] = full_path
             except Exception as e:
-                self.result_text.append(f"❌ 扫描源文件夹失败：{str(e)}\n")
+                self.result_text.append(f"[错误] 扫描源文件夹失败：{str(e)}\n")
                 self.progress.setVisible(False)
                 self.btn_sync.setEnabled(True)
                 self.btn_preview.setEnabled(True)
@@ -943,7 +1174,7 @@ class SyncBackupPage(QWidget):
 
             total_files = len(source_files)
             if total_files == 0:
-                self.result_text.append("❌ 源文件夹中没有找到文件\n")
+                self.result_text.append("[错误] 源文件夹中没有找到文件\n")
                 self.progress.setVisible(False)
                 self.btn_sync.setEnabled(True)
                 self.btn_preview.setEnabled(True)
@@ -965,7 +1196,7 @@ class SyncBackupPage(QWidget):
                         os.makedirs(target_dir)
                     except Exception as e:
                         self.result_text.append(
-                            f"❌ 创建文件夹失败: {target_dir} - {str(e)}\n")
+                            f"[错误] 创建文件夹失败: {target_dir} - {str(e)}\n")
                         failed += 1
                         continue
 
@@ -986,10 +1217,10 @@ class SyncBackupPage(QWidget):
                     try:
                         shutil.copy2(src_path, target_path)
                         copied += 1
-                        self.result_text.append(f"✅ 复制: {rel_path}\n")
+                        self.result_text.append(f"[完成] 复制: {rel_path}\n")
                     except Exception as e:
                         failed += 1
-                        self.result_text.append(f"❌ 复制失败: {rel_path} - {str(e)}\n")
+                        self.result_text.append(f"[错误] 复制失败: {rel_path} - {str(e)}\n")
 
                 # 更新进度
                 progress_value = int((copied + failed) / total_files * 80)
@@ -999,7 +1230,7 @@ class SyncBackupPage(QWidget):
             # 删除多余的文件
             deleted = 0
             if self.check_delete.isChecked():
-                self.result_text.append("\n🗑️ 正在删除多余文件...\n")
+                self.result_text.append("\n正在删除多余文件...\n")
 
                 try:
                     if self.check_subfolders.isChecked():
@@ -1013,10 +1244,10 @@ class SyncBackupPage(QWidget):
                                         os.remove(full_path)
                                         deleted += 1
                                         self.result_text.append(
-                                            f"🗑️ 删除: {rel_path}\n")
+                                            f"删除: {rel_path}\n")
                                     except Exception as e:
                                         self.result_text.append(
-                                            f"❌ 删除失败: {rel_path} - {str(e)}\n")
+                                            f"[错误] 删除失败: {rel_path} - {str(e)}\n")
                     else:
                         for item in os.listdir(self.target_folder):
                             full_path = os.path.join(self.target_folder, item)
@@ -1024,12 +1255,12 @@ class SyncBackupPage(QWidget):
                                 try:
                                     os.remove(full_path)
                                     deleted += 1
-                                    self.result_text.append(f"🗑️ 删除: {item}\n")
+                                    self.result_text.append(f"删除: {item}\n")
                                 except Exception as e:
                                     self.result_text.append(
-                                        f"❌ 删除失败: {item} - {str(e)}\n")
+                                        f"[错误] 删除失败: {item} - {str(e)}\n")
                 except Exception as e:
-                    self.result_text.append(f"❌ 删除过程出错：{str(e)}\n")
+                    self.result_text.append(f"[错误] 删除过程出错：{str(e)}\n")
 
                 self.progress.setValue(90)
 
@@ -1037,17 +1268,17 @@ class SyncBackupPage(QWidget):
 
             # 显示完成信息
             self.result_text.append("\n" + "=" * 60 + "\n")
-            self.result_text.append(f"✅ 同步完成！\n")
-            self.result_text.append(f"📁 复制/更新文件: {copied} 个\n")
+            self.result_text.append(f"[完成] 同步完成！\n")
+            self.result_text.append(f"复制/更新文件: {copied} 个\n")
             if self.check_delete.isChecked():
-                self.result_text.append(f"🗑️ 删除文件: {deleted} 个\n")
+                self.result_text.append(f"删除文件: {deleted} 个\n")
             if failed > 0:
-                self.result_text.append(f"❌ 失败: {failed} 个\n")
+                self.result_text.append(f"[错误] 失败: {failed} 个\n")
 
             QMessageBox.information(self, "完成", "文件夹同步完成！")
 
         except Exception as e:
-            self.result_text.append(f"❌ 同步过程中发生错误：{str(e)}\n")
+            self.result_text.append(f"[错误] 同步过程中发生错误：{str(e)}\n")
             QMessageBox.critical(self, "错误", f"同步失败：{str(e)}")
 
         self.progress.setVisible(False)
@@ -1075,19 +1306,20 @@ class DiskAnalyzerPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # 标题
-        title = QLabel("💾 磁盘空间分析器")
+        title = QLabel("磁盘空间分析器")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
 
         # 统一的 QGroupBox 字体
         group_font = QFont()
-        group_font.setPointSize(15)
+        group_font.setPointSize(11)
 
         # 路径选择区域
         path_group = QGroupBox("选择要分析的路径")
+        path_group.setObjectName("contentGroup")
         path_group.setFont(group_font)  # 添加字体设置
         path_layout = QHBoxLayout()
 
@@ -1095,20 +1327,20 @@ class DiskAnalyzerPage(QWidget):
         self.path_edit.setPlaceholderText("请选择要分析的文件夹或磁盘...")
         self.path_edit.setReadOnly(True)
 
-        self.btn_browse = QPushButton("📂 选择文件夹")
+        self.btn_browse = QPushButton("选择文件夹")
         self.btn_browse.clicked.connect(self.select_path)
         self.btn_browse.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
@@ -1142,39 +1374,39 @@ class DiskAnalyzerPage(QWidget):
         # 按钮区域
         button_layout = QHBoxLayout()
 
-        self.btn_scan = QPushButton("🔍 开始扫描")
+        self.btn_scan = QPushButton("开始扫描")
         self.btn_scan.clicked.connect(self.start_scan)
         self.btn_scan.setEnabled(False)
         self.btn_scan.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
-        self.btn_stop = QPushButton("⏹ 停止扫描")
+        self.btn_stop = QPushButton("停止扫描")
         self.btn_stop.clicked.connect(self.stop_scan)
         self.btn_stop.setEnabled(False)
         self.btn_stop.setStyleSheet("""
             QPushButton {
-                background-color: #FF6B6B;
+                background-color: #ef4444;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF5252;
+                background-color: #dc2626;
             }
         """)
 
@@ -1197,6 +1429,7 @@ class DiskAnalyzerPage(QWidget):
         self.ax = self.figure.add_subplot(111)
 
         chart_group = QGroupBox("空间分布")
+        chart_group.setObjectName("contentGroup")
         chart_group.setFont(group_font)  # 添加字体设置
         chart_layout = QVBoxLayout()
         chart_layout.addWidget(self.canvas)
@@ -1204,6 +1437,7 @@ class DiskAnalyzerPage(QWidget):
 
         # 右侧：文件列表
         list_group = QGroupBox("大文件列表")
+        list_group.setObjectName("contentGroup")
         list_group.setFont(group_font)  # 添加字体设置
         list_layout = QVBoxLayout()
 
@@ -1680,9 +1914,9 @@ class PDFBatchPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # 标题
-        title = QLabel("📄 PDF 批量处理工具（该功能暂未测试）")
+        title = QLabel("PDF 批量处理工具（该功能暂未测试）")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
@@ -1695,10 +1929,11 @@ class PDFBatchPage(QWidget):
 
         # 统一的 QGroupBox 字体
         group_font = QFont()
-        group_font.setPointSize(15)
+        group_font.setPointSize(11)
 
         # 文件选择区域
         file_group = QGroupBox("选择PDF文件")
+        file_group.setObjectName("contentGroup")
         file_group.setFont(group_font)
         file_layout = QVBoxLayout(file_group)
 
@@ -1711,54 +1946,54 @@ class PDFBatchPage(QWidget):
         # 文件操作按钮
         file_btn_layout = QHBoxLayout()
 
-        self.btn_add = QPushButton("➕ 添加文件")
+        self.btn_add = QPushButton("添加文件")
         self.btn_add.clicked.connect(self.add_files)
         self.btn_add.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
-        self.btn_remove = QPushButton("➖ 移除选中")
+        self.btn_remove = QPushButton("移除选中")
         self.btn_remove.clicked.connect(self.remove_files)
         self.btn_remove.setStyleSheet("""
             QPushButton {
-                background-color: #FF6B6B;
+                background-color: #ef4444;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF5252;
+                background-color: #dc2626;
             }
         """)
 
-        self.btn_clear = QPushButton("🗑️ 清空列表")
+        self.btn_clear = QPushButton("清空列表")
         self.btn_clear.clicked.connect(self.clear_files)
         self.btn_clear.setStyleSheet("""
             QPushButton {
-                background-color: #999;
+                background-color: #8E8E8E;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #777;
+                background-color: #8E8E8E;
             }
         """)
 
@@ -1775,27 +2010,27 @@ class PDFBatchPage(QWidget):
         # 合并PDF标签页
         self.merge_tab = QWidget()
         self.setup_merge_tab()
-        self.tab_widget.addTab(self.merge_tab, "📑 合并PDF")
+        self.tab_widget.addTab(self.merge_tab, "合并PDF")
 
         # 拆分PDF标签页
         self.split_tab = QWidget()
         self.setup_split_tab()
-        self.tab_widget.addTab(self.split_tab, "✂️ 拆分PDF")
+        self.tab_widget.addTab(self.split_tab, "拆分PDF")
 
         # 添加水印标签页
         self.watermark_tab = QWidget()
         self.setup_watermark_tab()
-        self.tab_widget.addTab(self.watermark_tab, "💧 添加水印")
+        self.tab_widget.addTab(self.watermark_tab, "添加水印")
 
         # 提取文字标签页
         self.extract_tab = QWidget()
         self.setup_extract_tab()
-        self.tab_widget.addTab(self.extract_tab, "📝 提取文字")
+        self.tab_widget.addTab(self.extract_tab, "提取文字")
 
         # 加密/解密标签页
         self.encrypt_tab = QWidget()
         self.setup_encrypt_tab()
-        self.tab_widget.addTab(self.encrypt_tab, "🔐 加密/解密")
+        self.tab_widget.addTab(self.encrypt_tab, "加密/解密")
 
         layout.addWidget(self.tab_widget)
 
@@ -1806,6 +2041,7 @@ class PDFBatchPage(QWidget):
 
         # 结果显示区域
         result_group = QGroupBox("处理结果")
+        result_group.setObjectName("contentGroup")
         result_group.setFont(group_font)
         result_layout = QVBoxLayout(result_group)
 
@@ -1837,20 +2073,20 @@ class PDFBatchPage(QWidget):
         self.merge_output.setPlaceholderText("合并后的文件名.pdf")
         output_layout.addWidget(self.merge_output)
 
-        self.btn_merge_browse = QPushButton("📂 选择保存位置")
+        self.btn_merge_browse = QPushButton("选择保存位置")
         self.btn_merge_browse.clicked.connect(self.browse_output_file)
         self.btn_merge_browse.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
         output_layout.addWidget(self.btn_merge_browse)
@@ -1858,20 +2094,20 @@ class PDFBatchPage(QWidget):
         layout.addLayout(output_layout)
 
         # 合并按钮
-        self.btn_merge = QPushButton("🔗 开始合并")
+        self.btn_merge = QPushButton("开始合并")
         self.btn_merge.clicked.connect(self.merge_pdfs)
         self.btn_merge.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #22c55e;
                 color: white;
                 border: none;
                 padding: 10px 15px;
-                border-radius: 6px;
-                min-height: 35px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #16a34a;
             }
         """)
         layout.addWidget(self.btn_merge)
@@ -1906,20 +2142,20 @@ class PDFBatchPage(QWidget):
         self.split_output.setPlaceholderText("拆分后的文件名.pdf")
         output_layout.addWidget(self.split_output)
 
-        self.btn_split_browse = QPushButton("📂 选择保存位置")
+        self.btn_split_browse = QPushButton("选择保存位置")
         self.btn_split_browse.clicked.connect(self.browse_output_file)
         self.btn_split_browse.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
         output_layout.addWidget(self.btn_split_browse)
@@ -1927,21 +2163,21 @@ class PDFBatchPage(QWidget):
         layout.addLayout(output_layout)
 
         # 拆分按钮
-        self.btn_split = QPushButton("✂️ 开始拆分")
+        self.btn_split = QPushButton("开始拆分")
         self.btn_split.clicked.connect(self.split_pdf)
         self.btn_split.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #22c55e;
                 color: white;
                 border: none;
                 padding: 10px 15px;
-                border-radius: 6px;
-                min-height: 35px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #16a34a;
             }
         """)
         layout.addWidget(self.btn_split)
@@ -1988,7 +2224,7 @@ class PDFBatchPage(QWidget):
         self.watermark_color = QPushButton("选择颜色")
         self.watermark_color.clicked.connect(self.choose_watermark_color)
         self.watermark_color.setStyleSheet(
-            "background-color: #999999; color: white;")
+            "background-color: #8E8E8E; color: white;")
         settings_layout.addRow("水印颜色:", self.watermark_color)
 
         layout.addLayout(settings_layout)
@@ -2001,20 +2237,20 @@ class PDFBatchPage(QWidget):
         self.watermark_output.setPlaceholderText("添加水印后的文件名.pdf")
         output_layout.addWidget(self.watermark_output)
 
-        self.btn_watermark_browse = QPushButton("📂 选择保存位置")
+        self.btn_watermark_browse = QPushButton("选择保存位置")
         self.btn_watermark_browse.clicked.connect(self.browse_output_file)
         self.btn_watermark_browse.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
         output_layout.addWidget(self.btn_watermark_browse)
@@ -2022,21 +2258,21 @@ class PDFBatchPage(QWidget):
         layout.addLayout(output_layout)
 
         # 添加水印按钮
-        self.btn_watermark = QPushButton("💧 添加水印")
+        self.btn_watermark = QPushButton("添加水印")
         self.btn_watermark.clicked.connect(self.add_watermark)
         self.btn_watermark.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #22c55e;
                 color: white;
                 border: none;
                 padding: 10px 15px;
-                border-radius: 6px;
-                min-height: 35px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #16a34a;
             }
         """)
         layout.addWidget(self.btn_watermark)
@@ -2085,20 +2321,20 @@ class PDFBatchPage(QWidget):
         self.extract_output.setPlaceholderText("提取的文字保存为.txt文件")
         output_layout.addWidget(self.extract_output)
 
-        self.btn_extract_browse = QPushButton("📂 选择保存位置")
+        self.btn_extract_browse = QPushButton("选择保存位置")
         self.btn_extract_browse.clicked.connect(self.browse_output_file)
         self.btn_extract_browse.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
         output_layout.addWidget(self.btn_extract_browse)
@@ -2106,21 +2342,21 @@ class PDFBatchPage(QWidget):
         layout.addLayout(output_layout)
 
         # 提取文字按钮
-        self.btn_extract = QPushButton("📝 提取文字")
+        self.btn_extract = QPushButton("提取文字")
         self.btn_extract.clicked.connect(self.extract_text)
         self.btn_extract.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #22c55e;
                 color: white;
                 border: none;
                 padding: 10px 15px;
-                border-radius: 6px;
-                min-height: 35px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #16a34a;
             }
         """)
         layout.addWidget(self.btn_extract)
@@ -2165,20 +2401,20 @@ class PDFBatchPage(QWidget):
         self.encrypt_output.setPlaceholderText("处理后的文件名.pdf")
         output_layout.addWidget(self.encrypt_output)
 
-        self.btn_encrypt_browse = QPushButton("📂 选择保存位置")
+        self.btn_encrypt_browse = QPushButton("选择保存位置")
         self.btn_encrypt_browse.clicked.connect(self.browse_output_file)
         self.btn_encrypt_browse.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
         output_layout.addWidget(self.btn_encrypt_browse)
@@ -2186,21 +2422,21 @@ class PDFBatchPage(QWidget):
         layout.addLayout(output_layout)
 
         # 加密/解密按钮
-        self.btn_encrypt = QPushButton("🔐 开始处理")
+        self.btn_encrypt = QPushButton("开始处理")
         self.btn_encrypt.clicked.connect(self.encrypt_pdf)
         self.btn_encrypt.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #22c55e;
                 color: white;
                 border: none;
                 padding: 10px 15px;
-                border-radius: 6px;
-                min-height: 35px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #16a34a;
             }
         """)
         layout.addWidget(self.btn_encrypt)
@@ -2291,7 +2527,7 @@ class PDFBatchPage(QWidget):
             return
 
         self.result_text.clear()
-        self.result_text.append("🔗 开始合并PDF文件...\n")
+        self.result_text.append("开始合并PDF文件...\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         self.progress.setVisible(True)
@@ -2315,7 +2551,7 @@ class PDFBatchPage(QWidget):
             merger.close()
 
             self.progress.setValue(100)
-            self.result_text.append(f"\n✅ 合并完成！文件已保存到: {output_path}\n")
+            self.result_text.append(f"\n[完成] 合并完成！文件已保存到: {output_path}\n")
 
             # 询问是否打开文件
             reply = QMessageBox.question(
@@ -2329,7 +2565,7 @@ class PDFBatchPage(QWidget):
                     subprocess.Popen(['xdg-open', output_path])
 
         except Exception as e:
-            self.result_text.append(f"\n❌ 合并失败: {str(e)}\n")
+            self.result_text.append(f"\n[错误] 合并失败: {str(e)}\n")
             QMessageBox.critical(self, "错误", f"合并PDF失败: {str(e)}")
 
         self.progress.setVisible(False)
@@ -2351,7 +2587,7 @@ class PDFBatchPage(QWidget):
             return
 
         self.result_text.clear()
-        self.result_text.append("✂️ 开始拆分PDF文件...\n")
+        self.result_text.append("开始拆分PDF文件...\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         self.progress.setVisible(True)
@@ -2379,11 +2615,11 @@ class PDFBatchPage(QWidget):
             # 添加指定页面
             for page_num in pages_to_extract:
                 if page_num < 1 or page_num > total_pages:
-                    self.result_text.append(f"⚠️ 页面 {page_num} 超出范围，已跳过\n")
+                    self.result_text.append(f"[警告] 页面 {page_num} 超出范围，已跳过\n")
                     continue
 
                 pdf_writer.add_page(pdf_reader.pages[page_num - 1])
-                self.result_text.append(f"✅ 已添加页面 {page_num}\n")
+                self.result_text.append(f"[完成] 已添加页面 {page_num}\n")
 
                 # 更新进度
                 progress = int(pages_to_extract.index(
@@ -2396,7 +2632,7 @@ class PDFBatchPage(QWidget):
                 pdf_writer.write(output_file)
 
             self.progress.setValue(100)
-            self.result_text.append(f"\n✅ 拆分完成！文件已保存到: {output_path}\n")
+            self.result_text.append(f"\n[完成] 拆分完成！文件已保存到: {output_path}\n")
 
             # 询问是否打开文件
             reply = QMessageBox.question(
@@ -2410,7 +2646,7 @@ class PDFBatchPage(QWidget):
                     subprocess.Popen(['xdg-open', output_path])
 
         except Exception as e:
-            self.result_text.append(f"\n❌ 拆分失败: {str(e)}\n")
+            self.result_text.append(f"\n[错误] 拆分失败: {str(e)}\n")
             QMessageBox.critical(self, "错误", f"拆分PDF失败: {str(e)}")
 
         self.progress.setVisible(False)
@@ -2432,7 +2668,7 @@ class PDFBatchPage(QWidget):
             return
 
         self.result_text.clear()
-        self.result_text.append("💧 开始添加水印...\n")
+        self.result_text.append("开始添加水印...\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         self.progress.setVisible(True)
@@ -2468,7 +2704,7 @@ class PDFBatchPage(QWidget):
                 pdf_writer.write(output_file)
 
             self.progress.setValue(100)
-            self.result_text.append(f"\n✅ 水印添加完成！文件已保存到: {output_path}\n")
+            self.result_text.append(f"\n[完成] 水印添加完成！文件已保存到: {output_path}\n")
 
             # 询问是否打开文件
             reply = QMessageBox.question(
@@ -2482,7 +2718,7 @@ class PDFBatchPage(QWidget):
                     subprocess.Popen(['xdg-open', output_path])
 
         except Exception as e:
-            self.result_text.append(f"\n❌ 添加水印失败: {str(e)}\n")
+            self.result_text.append(f"\n[错误] 添加水印失败: {str(e)}\n")
             QMessageBox.critical(self, "错误", f"添加水印失败: {str(e)}")
 
         self.progress.setVisible(False)
@@ -2532,7 +2768,7 @@ class PDFBatchPage(QWidget):
             return
 
         self.result_text.clear()
-        self.result_text.append("📝 开始提取文字...\n")
+        self.result_text.append("开始提取文字...\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         self.progress.setVisible(True)
@@ -2558,7 +2794,7 @@ class PDFBatchPage(QWidget):
                 extracted_text = ""
                 for i, page_num in enumerate(pages_to_extract):
                     if page_num < 1 or page_num > total_pages:
-                        self.result_text.append(f"⚠️ 页面 {page_num} 超出范围，已跳过\n")
+                        self.result_text.append(f"[警告] 页面 {page_num} 超出范围，已跳过\n")
                         continue
 
                     page = pdf.pages[page_num - 1]
@@ -2576,7 +2812,7 @@ class PDFBatchPage(QWidget):
                     output_file.write(extracted_text)
 
                 self.progress.setValue(100)
-                self.result_text.append(f"\n✅ 文字提取完成！已保存到: {output_path}\n")
+                self.result_text.append(f"\n[完成] 文字提取完成！已保存到: {output_path}\n")
 
                 # 询问是否打开文件
                 reply = QMessageBox.question(
@@ -2590,7 +2826,7 @@ class PDFBatchPage(QWidget):
                         subprocess.Popen(['xdg-open', output_path])
 
         except Exception as e:
-            self.result_text.append(f"\n❌ 提取文字失败: {str(e)}\n")
+            self.result_text.append(f"\n[错误] 提取文字失败: {str(e)}\n")
             QMessageBox.critical(self, "错误", f"提取文字失败: {str(e)}")
 
         self.progress.setVisible(False)
@@ -2614,7 +2850,7 @@ class PDFBatchPage(QWidget):
         operation = self.encrypt_operation.currentText()
 
         self.result_text.clear()
-        self.result_text.append(f"🔐 开始{operation}...\n")
+        self.result_text.append(f"开始{operation}...\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         self.progress.setVisible(True)
@@ -2637,7 +2873,7 @@ class PDFBatchPage(QWidget):
                 with open(output_path, 'wb') as output_file:
                     pdf_writer.write(output_file)
 
-                self.result_text.append(f"✅ PDF加密完成！密码已设置为: {password}\n")
+                self.result_text.append(f"[完成] PDF加密完成！密码已设置为: {password}\n")
 
             else:  # 解密PDF
                 # 解密PDF
@@ -2667,7 +2903,7 @@ class PDFBatchPage(QWidget):
                 with open(output_path, 'wb') as output_file:
                     pdf_writer.write(output_file)
 
-                self.result_text.append(f"✅ PDF解密完成！\n")
+                self.result_text.append(f"[完成] PDF解密完成！\n")
 
             self.progress.setValue(100)
             self.result_text.append(f"文件已保存到: {output_path}\n")
@@ -2684,7 +2920,7 @@ class PDFBatchPage(QWidget):
                     subprocess.Popen(['xdg-open', output_path])
 
         except Exception as e:
-            self.result_text.append(f"\n❌ {operation}失败: {str(e)}\n")
+            self.result_text.append(f"\n[错误] {operation}失败: {str(e)}\n")
             QMessageBox.critical(self, "错误", f"{operation}失败: {str(e)}")
 
         self.progress.setVisible(False)
@@ -2725,9 +2961,9 @@ class OfficeBatchPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
-        title = QLabel("📂 文件批量筛选")
+        title = QLabel("文件批量筛选")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
@@ -2738,9 +2974,10 @@ class OfficeBatchPage(QWidget):
 
     def setup_filter_content(self, parent_layout):
         group_font = QFont()
-        group_font.setPointSize(15)
+        group_font.setPointSize(11)
 
         file_group = QGroupBox("待筛选文件")
+        file_group.setObjectName("contentGroup")
         file_group.setFont(group_font)
         file_layout = QVBoxLayout(file_group)
 
@@ -2749,8 +2986,8 @@ class OfficeBatchPage(QWidget):
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_list.setStyleSheet("""
             QListWidget {
-                border: 1px solid #ddd;
-                border-radius: 6px;
+                border: 1px solid #E5E5E5;
+                border-radius: 8px;
                 padding: 5px;
                 background-color: white;
             }
@@ -2760,23 +2997,23 @@ class OfficeBatchPage(QWidget):
                 font-size: 10pt;
             }
             QListWidget::item:selected {
-                background-color: #FFE4B5;
+                background-color: #eef0ff;
                 color: #333;
             }
         """)
         file_layout.addWidget(self.file_list, stretch=1)
 
         file_btn_layout = QHBoxLayout()
-        self.btn_add_files = QPushButton("➕ 添加")
+        self.btn_add_files = QPushButton("添加")
         self.btn_add_files.clicked.connect(self.add_files)
-        self.btn_remove_files = QPushButton("🗑️ 移除")
+        self.btn_remove_files = QPushButton("移除")
         self.btn_remove_files.clicked.connect(self.remove_selected_files)
-        self.btn_clear_files = QPushButton("🧹 清空")
+        self.btn_clear_files = QPushButton("清空")
         self.btn_clear_files.clicked.connect(self.clear_files)
         for btn in [self.btn_add_files, self.btn_remove_files, self.btn_clear_files]:
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #FFB347;
+                    background-color: #6C7BF2;
                     color: white;
                     border: none;
                     padding: 4px 12px;
@@ -2786,7 +3023,7 @@ class OfficeBatchPage(QWidget):
                     font-size: 10pt;
                 }
                 QPushButton:hover {
-                    background-color: #FF9500;
+                    background-color: #818EF5;
                 }
             """)
         file_btn_layout.addWidget(self.btn_add_files)
@@ -2801,6 +3038,7 @@ class OfficeBatchPage(QWidget):
         parent_layout.addWidget(file_group, stretch=3)
 
         name_group = QGroupBox("筛选名单")
+        name_group.setObjectName("contentGroup")
         name_group.setFont(group_font)
         name_layout = QVBoxLayout(name_group)
 
@@ -2808,8 +3046,8 @@ class OfficeBatchPage(QWidget):
         self.name_text.setPlaceholderText("输入需要筛选的人名（每行一个），支持从 Excel 导入\n例如：\n张三\n王五\n赵六")
         self.name_text.setStyleSheet("""
             QTextEdit {
-                border: 1px solid #ddd;
-                border-radius: 6px;
+                border: 1px solid #E5E5E5;
+                border-radius: 8px;
                 padding: 8px;
                 background-color: white;
                 font-size: 10pt;
@@ -2818,14 +3056,14 @@ class OfficeBatchPage(QWidget):
         name_layout.addWidget(self.name_text, stretch=1)
 
         name_btn_layout = QHBoxLayout()
-        self.btn_load_names = QPushButton("📄 导入名单")
+        self.btn_load_names = QPushButton("导入名单")
         self.btn_load_names.clicked.connect(self.load_names_from_file)
-        self.btn_clear_names = QPushButton("🧹 清空")
+        self.btn_clear_names = QPushButton("清空")
         self.btn_clear_names.clicked.connect(lambda: self.name_text.clear())
         for btn in [self.btn_load_names, self.btn_clear_names]:
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #FFB347;
+                    background-color: #6C7BF2;
                     color: white;
                     border: none;
                     padding: 4px 12px;
@@ -2835,7 +3073,7 @@ class OfficeBatchPage(QWidget):
                     font-size: 10pt;
                 }
                 QPushButton:hover {
-                    background-color: #FF9500;
+                    background-color: #818EF5;
                 }
             """)
         name_btn_layout.addWidget(self.btn_load_names)
@@ -2868,11 +3106,11 @@ class OfficeBatchPage(QWidget):
         action_layout = QHBoxLayout()
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(0)
-        self.btn_filter = QPushButton("🔍 开始筛选")
+        self.btn_filter = QPushButton("开始筛选")
         self.btn_filter.setMinimumWidth(110)
         self.btn_filter.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
                 padding: 4px 12px;
@@ -2881,7 +3119,7 @@ class OfficeBatchPage(QWidget):
                 font-weight: bold;
                 font-size: 10pt;
             }
-            QPushButton:hover { background-color: #FF9500; }
+            QPushButton:hover { background-color: #818EF5; }
         """)
         self.btn_filter.clicked.connect(self.filter_files)
         action_layout.addStretch()
@@ -2890,6 +3128,7 @@ class OfficeBatchPage(QWidget):
         parent_layout.addLayout(action_layout)
 
         result_group = QGroupBox("筛选结果")
+        result_group.setObjectName("contentGroup")
         result_group.setFont(group_font)
         result_layout = QVBoxLayout(result_group)
 
@@ -2901,8 +3140,8 @@ class OfficeBatchPage(QWidget):
         self.result_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.result_list.setStyleSheet("""
             QListWidget {
-                border: 1px solid #ddd;
-                border-radius: 6px;
+                border: 1px solid #E5E5E5;
+                border-radius: 8px;
                 padding: 5px;
                 background-color: white;
             }
@@ -2912,23 +3151,23 @@ class OfficeBatchPage(QWidget):
                 font-size: 10pt;
             }
             QListWidget::item:selected {
-                background-color: #C8E6C9;
+                background-color: #ecfdf5;
                 color: #333;
             }
         """)
         result_layout.addWidget(self.result_list, stretch=1)
 
         result_btn_layout = QHBoxLayout()
-        self.btn_copy_selected = QPushButton("📋 复制选中到...")
+        self.btn_copy_selected = QPushButton("复制选中到...")
         self.btn_copy_selected.clicked.connect(self.copy_selected_files)
         self.btn_copy_selected.setMinimumWidth(110)
-        self.btn_copy_all = QPushButton("📁 复制全部到...")
+        self.btn_copy_all = QPushButton("复制全部到...")
         self.btn_copy_all.clicked.connect(self.copy_all_filtered)
         self.btn_copy_all.setMinimumWidth(110)
         for btn in [self.btn_copy_selected, self.btn_copy_all]:
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #FFB347;
+                    background-color: #6C7BF2;
                     color: white;
                     border: none;
                     padding: 4px 12px;
@@ -2938,7 +3177,7 @@ class OfficeBatchPage(QWidget):
                     font-size: 10pt;
                 }
                 QPushButton:hover {
-                    background-color: #FF9500;
+                    background-color: #818EF5;
                 }
             """)
         result_btn_layout.addWidget(self.btn_copy_selected)
@@ -2960,7 +3199,7 @@ class OfficeBatchPage(QWidget):
                         exists = True
                         break
                 if not exists:
-                    item = QListWidgetItem(f"📄 {name}")
+                    item = QListWidgetItem(f"{name}")
                     item.setData(Qt.ItemDataRole.UserRole, fp)
                     item.setToolTip(fp)
                     self.file_list.addItem(item)
@@ -3057,7 +3296,7 @@ class OfficeBatchPage(QWidget):
             for name in names:
                 if name in compare_name:
                     self.filtered_files.append(file_path)
-                    result_item = QListWidgetItem(f"✅ {file_name}")
+                    result_item = QListWidgetItem(f"[完成] {file_name}")
                     result_item.setData(Qt.ItemDataRole.UserRole, file_path)
                     result_item.setToolTip(file_path)
                     self.result_list.addItem(result_item)
@@ -3065,11 +3304,11 @@ class OfficeBatchPage(QWidget):
 
         if self.filtered_files:
             self.result_info.setText(
-                f"找到 <span style='color:#4CAF50;font-weight:bold;'>{len(self.filtered_files)}</span> 个匹配文件"
+                f"找到 <span style='color:#22c55e;font-weight:bold;'>{len(self.filtered_files)}</span> 个匹配文件"
             )
         else:
             self.result_info.setText(
-                "<span style='color:#f44336;font-weight:bold;'>未找到任何匹配文件</span>"
+                "<span style='color:#ef4444;font-weight:bold;'>未找到任何匹配文件</span>"
             )
 
     def copy_selected_files(self):
@@ -3183,17 +3422,18 @@ class FileNameCut(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # 标题
-        title = QLabel("✂️ 文件名称提取器")
+        title = QLabel("文件名称提取器")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
 
         # 文件夹选择区域
         folder_group = QGroupBox("选择文件夹")
+        folder_group.setObjectName("contentGroup")
         group_font = QFont()
-        group_font.setPointSize(15)
+        group_font.setPointSize(11)
         folder_group.setFont(group_font)
         folder_layout = QVBoxLayout(folder_group)
 
@@ -3204,21 +3444,21 @@ class FileNameCut(QWidget):
         self.folder_path_edit.setReadOnly(True)
 
         # 选择文件夹按钮
-        btn_select = QPushButton("📂 选择文件夹")
+        btn_select = QPushButton("选择文件夹")
         btn_select.setMinimumWidth(130)
         btn_select.clicked.connect(self.select_folder)
         btn_select.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
@@ -3260,7 +3500,7 @@ class FileNameCut(QWidget):
             QLabel {
                 color: #333;
                 font-weight: bold;
-                background-color: #f0f0f0;
+                background-color: #F5F5F5;
                 padding: 5px 10px;
                 border-radius: 4px;
                 min-width: 70px;
@@ -3272,7 +3512,7 @@ class FileNameCut(QWidget):
         self.separator_edit.setStyleSheet("""
             QLineEdit {
                 padding: 5px 10px;
-                border: 1px solid #ddd;
+                border: 1px solid #E5E5E5;
                 border-radius: 4px;
                 min-height: 28px;
             }
@@ -3288,7 +3528,7 @@ class FileNameCut(QWidget):
             QLabel {
                 color: #333;
                 font-weight: bold;
-                background-color: #f0f0f0;
+                background-color: #F5F5F5;
                 padding: 5px 10px;
                 border-radius: 4px;
                 min-width: 70px;
@@ -3301,7 +3541,7 @@ class FileNameCut(QWidget):
         self.extract_part.setStyleSheet("""
             QSpinBox {
                 padding: 5px 10px;
-                border: 1px solid #ddd;
+                border: 1px solid #E5E5E5;
                 border-radius: 4px;
                 min-height: 28px;
             }
@@ -3317,7 +3557,7 @@ class FileNameCut(QWidget):
             QLabel {
                 color: #333;
                 font-weight: bold;
-                background-color: #f0f0f0;
+                background-color: #F5F5F5;
                 padding: 5px 10px;
                 border-radius: 4px;
                 min-width: 70px;
@@ -3328,7 +3568,7 @@ class FileNameCut(QWidget):
         self.extension_edit.setStyleSheet("""
             QLineEdit {
                 padding: 5px 10px;
-                border: 1px solid #ddd;
+                border: 1px solid #E5E5E5;
                 border-radius: 4px;
                 min-height: 28px;
             }
@@ -3346,39 +3586,39 @@ class FileNameCut(QWidget):
         # 按钮区域
         button_layout = QHBoxLayout()
 
-        self.btn_preview = QPushButton("👁️ 预览结果")
+        self.btn_preview = QPushButton("预览结果")
         self.btn_preview.clicked.connect(self.preview_extraction)
         self.btn_preview.setEnabled(False)
         self.btn_preview.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
-        self.btn_export = QPushButton("📊 导出到Excel")
+        self.btn_export = QPushButton("导出到Excel")
         self.btn_export.clicked.connect(self.export_to_excel)
         self.btn_export.setEnabled(False)
         self.btn_export.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #22c55e;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #16a34a;
             }
         """)
 
@@ -3389,6 +3629,7 @@ class FileNameCut(QWidget):
 
         # 结果显示区域
         result_group = QGroupBox("提取结果")
+        result_group.setObjectName("contentGroup")
         result_group.setFont(group_font)
         result_layout = QVBoxLayout(result_group)
 
@@ -3587,9 +3828,9 @@ class OCRPage(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        label = QLabel("🔍 OCR 文字识别工具")
+        label = QLabel("OCR 文字识别工具")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         label.setFont(title_font)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -3598,10 +3839,10 @@ class OCRPage(QWidget):
 
         info = QLabel("此功能正在开发中，敬请期待...")
         info_font = QFont()
-        info_font.setPointSize(14)
+        info_font.setPointSize(10)
         info.setFont(info_font)
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info.setStyleSheet("color: #999; margin-top: 20px;")
+        info.setStyleSheet("color: #8E8E8E; margin-top: 20px;")
         layout.addWidget(info)
 
 
@@ -4358,18 +4599,19 @@ class TextDuplicatePage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # 标题
-        title = QLabel("🔁 文本重复识别")
+        title = QLabel("文本重复识别")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
 
         group_font = QFont()
-        group_font.setPointSize(15)
+        group_font.setPointSize(11)
 
         # ===== 输入区域 =====
         input_group = QGroupBox("输入文本")
+        input_group.setObjectName("contentGroup")
         input_group.setFont(group_font)
         input_layout = QVBoxLayout(input_group)
 
@@ -4410,108 +4652,108 @@ class TextDuplicatePage(QWidget):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(15)
 
-        self.btn_analyze = QPushButton("🔍 识别重复项")
+        self.btn_analyze = QPushButton("识别重复项")
         self.btn_analyze.setMinimumWidth(130)
         self.btn_analyze.clicked.connect(self.analyze_duplicates)
         self.btn_analyze.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
-        self.btn_extract_unique = QPushButton("📋 提取非重复部分")
+        self.btn_extract_unique = QPushButton("提取非重复部分")
         self.btn_extract_unique.setMinimumWidth(140)
         self.btn_extract_unique.clicked.connect(self.extract_unique)
         self.btn_extract_unique.setEnabled(False)
         self.btn_extract_unique.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
             QPushButton:disabled {
-                background-color: #ccc;
-                color: #999;
+                background-color: #C5CAF8;
+                color: #8E8E8E;
             }
         """)
 
-        self.btn_extract_dup = QPushButton("📋 提取重复部分")
+        self.btn_extract_dup = QPushButton("提取重复部分")
         self.btn_extract_dup.setMinimumWidth(130)
         self.btn_extract_dup.clicked.connect(self.extract_duplicate)
         self.btn_extract_dup.setEnabled(False)
         self.btn_extract_dup.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
             QPushButton:disabled {
-                background-color: #ccc;
-                color: #999;
+                background-color: #C5CAF8;
+                color: #8E8E8E;
             }
         """)
 
-        self.btn_extract_dedup = QPushButton("📋 提取去重后文本")
+        self.btn_extract_dedup = QPushButton("提取去重后文本")
         self.btn_extract_dedup.setMinimumWidth(140)
         self.btn_extract_dedup.clicked.connect(self.extract_deduplicated)
         self.btn_extract_dedup.setEnabled(False)
         self.btn_extract_dedup.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
             QPushButton:disabled {
-                background-color: #ccc;
-                color: #999;
+                background-color: #C5CAF8;
+                color: #8E8E8E;
             }
         """)
 
-        self.btn_clear = QPushButton("🗑️ 清空")
+        self.btn_clear = QPushButton("清空")
         self.btn_clear.setMinimumWidth(90)
         self.btn_clear.clicked.connect(self.clear_all)
         self.btn_clear.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
@@ -4525,6 +4767,7 @@ class TextDuplicatePage(QWidget):
 
         # ===== 识别结果区域 =====
         result_group = QGroupBox("识别结果")
+        result_group.setObjectName("contentGroup")
         result_group.setFont(group_font)
         result_layout = QVBoxLayout(result_group)
 
@@ -4538,6 +4781,7 @@ class TextDuplicatePage(QWidget):
 
         # ===== 输出区域 =====
         output_group = QGroupBox("输出结果")
+        output_group.setObjectName("contentGroup")
         output_group.setFont(group_font)
         output_layout = QVBoxLayout(output_group)
 
@@ -4549,25 +4793,25 @@ class TextDuplicatePage(QWidget):
 
         # 复制按钮
         copy_layout = QHBoxLayout()
-        self.btn_copy = QPushButton("📋 复制输出结果")
+        self.btn_copy = QPushButton("复制输出结果")
         self.btn_copy.clicked.connect(self.copy_output)
         self.btn_copy.setEnabled(False)
         self.btn_copy.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
             QPushButton:disabled {
-                background-color: #ccc;
-                color: #999;
+                background-color: #C5CAF8;
+                color: #8E8E8E;
             }
         """)
         copy_layout.addStretch()
@@ -4673,13 +4917,13 @@ class TextDuplicatePage(QWidget):
 
         self.result_text.clear()
         self.output_text.clear()
-        self.result_text.append("🔍 正在分析文本中的重复片段...\n")
+        self.result_text.append("正在分析文本中的重复片段...\n")
         QApplication.processEvents()
 
         self.duplicate_segments = self.find_duplicate_segments(text, min_len)
 
         if not self.duplicate_segments:
-            self.result_text.append("✅ 未发现重复片段\n")
+            self.result_text.append("[完成] 未发现重复片段\n")
             self.btn_extract_unique.setEnabled(False)
             self.btn_extract_dup.setEnabled(False)
             self.btn_extract_dedup.setEnabled(False)
@@ -4694,7 +4938,7 @@ class TextDuplicatePage(QWidget):
 
         for i, (segment, count, positions) in enumerate(self.duplicate_segments, 1):
             display_seg = segment if len(segment) <= 80 else segment[:77] + "..."
-            self.result_text.append(f"📌 重复片段 {i}：\n")
+            self.result_text.append(f"[标记] 重复片段 {i}：\n")
             self.result_text.append(f"   内容：{display_seg}\n")
             self.result_text.append(f"   出现次数：{count} 次\n")
             self.result_text.append(f"   位置：{', '.join(f'第{p+1}字符' for p in positions)}\n\n")
@@ -4783,9 +5027,9 @@ class TextDuplicatePage(QWidget):
         if text:
             clipboard = QApplication.clipboard()
             clipboard.setText(text)
-            self.btn_copy.setText("✅ 已复制")
+            self.btn_copy.setText("[完成] 已复制")
             from PyQt6.QtCore import QTimer
-            QTimer.singleShot(1500, lambda: self.btn_copy.setText("📋 复制输出结果"))
+            QTimer.singleShot(1500, lambda: self.btn_copy.setText("复制输出结果"))
 
     def clear_all(self):
         self.input_text.clear()
@@ -4824,18 +5068,19 @@ class DocSplitPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # 标题
-        title = QLabel("📑 文档拆分工具")
+        title = QLabel("文档拆分工具")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
 
         group_font = QFont()
-        group_font.setPointSize(15)
+        group_font.setPointSize(11)
 
         # ===== 文件选择区域 =====
         file_group = QGroupBox("选择文件")
+        file_group.setObjectName("contentGroup")
         file_group.setFont(group_font)
         file_layout = QVBoxLayout(file_group)
 
@@ -4846,39 +5091,39 @@ class DocSplitPage(QWidget):
             "支持 PDF、Word(.docx)、Excel(.xlsx) 文件")
         self.file_path_edit.setReadOnly(True)
 
-        btn_add = QPushButton("📂 选择文件")
+        btn_add = QPushButton("选择文件")
         btn_add.setMinimumWidth(110)
         btn_add.clicked.connect(self.add_files)
         btn_add.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
-        btn_add_batch = QPushButton("➕ 批量添加")
+        btn_add_batch = QPushButton("批量添加")
         btn_add_batch.setMinimumWidth(110)
         btn_add_batch.clicked.connect(self.add_files_batch)
         btn_add_batch.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
 
@@ -4895,36 +5140,36 @@ class DocSplitPage(QWidget):
 
         # 文件操作按钮
         file_btn_layout = QHBoxLayout()
-        btn_remove = QPushButton("➖ 移除选中")
+        btn_remove = QPushButton("移除选中")
         btn_remove.clicked.connect(self.remove_files)
         btn_remove.setStyleSheet("""
             QPushButton {
-                background-color: #FF6B6B;
+                background-color: #ef4444;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF5252;
+                background-color: #dc2626;
             }
         """)
-        btn_clear = QPushButton("🗑️ 清空列表")
+        btn_clear = QPushButton("清空列表")
         btn_clear.clicked.connect(self.clear_files)
         btn_clear.setStyleSheet("""
             QPushButton {
-                background-color: #999;
+                background-color: #8E8E8E;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #777;
+                background-color: #8E8E8E;
             }
         """)
         file_btn_layout.addWidget(btn_remove)
@@ -5055,50 +5300,50 @@ class DocSplitPage(QWidget):
         naming_layout.addLayout(template_layout)
 
         self.hint_label = QLabel("可用变量: {原名}  {序号}  {序号:02d}  {日期}  {页码范围}  {标题}")
-        self.hint_label.setStyleSheet("color: #999; font-size: 11px;")
+        self.hint_label.setStyleSheet("color: #8E8E8E; font-size: 11px;")
         naming_layout.addWidget(self.hint_label)
 
         # 导入命名变量
         import_layout = QHBoxLayout()
-        self.btn_import_names = QPushButton("📋 导入变量（Excel）")
+        self.btn_import_names = QPushButton("导入变量（Excel）")
         self.btn_import_names.clicked.connect(self.import_names)
         self.btn_import_names.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
         import_layout.addWidget(self.btn_import_names)
 
-        self.btn_clear_import = QPushButton("✖ 清除变量")
+        self.btn_clear_import = QPushButton("清除变量")
         self.btn_clear_import.clicked.connect(self.clear_imported_vars)
         self.btn_clear_import.setVisible(False)
         self.btn_clear_import.setStyleSheet("""
             QPushButton {
-                background-color: #999;
+                background-color: #8E8E8E;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #777;
+                background-color: #8E8E8E;
             }
         """)
         import_layout.addWidget(self.btn_clear_import)
 
         self.label_import_info = QLabel("未导入变量，导入Excel后列名将作为变量名")
-        self.label_import_info.setStyleSheet("color: #999;")
+        self.label_import_info.setStyleSheet("color: #8E8E8E;")
         import_layout.addWidget(self.label_import_info)
         import_layout.addStretch()
         naming_layout.addLayout(import_layout)
@@ -5125,21 +5370,21 @@ class DocSplitPage(QWidget):
         self.edit_output_dir.setReadOnly(True)
         dir_layout.addWidget(self.edit_output_dir)
 
-        btn_output_dir = QPushButton("📂 选择目录")
+        btn_output_dir = QPushButton("选择目录")
         btn_output_dir.setMinimumWidth(110)
         btn_output_dir.clicked.connect(self.select_output_dir)
         btn_output_dir.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
         dir_layout.addWidget(btn_output_dir)
@@ -5158,62 +5403,62 @@ class DocSplitPage(QWidget):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(15)
 
-        self.btn_preview = QPushButton("👁️ 预览拆分")
+        self.btn_preview = QPushButton("预览拆分")
         self.btn_preview.setMinimumWidth(120)
         self.btn_preview.clicked.connect(self.preview_split)
         self.btn_preview.setEnabled(False)
         self.btn_preview.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
             QPushButton:disabled {
-                background-color: #ccc;
-                color: #999;
+                background-color: #C5CAF8;
+                color: #8E8E8E;
             }
         """)
 
-        self.btn_split = QPushButton("✂️ 开始拆分")
+        self.btn_split = QPushButton("开始拆分")
         self.btn_split.setMinimumWidth(120)
         self.btn_split.clicked.connect(self.start_split)
         self.btn_split.setEnabled(False)
         self.btn_split.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
             QPushButton:disabled {
-                background-color: #ccc;
-                color: #999;
+                background-color: #C5CAF8;
+                color: #8E8E8E;
             }
         """)
 
-        self.btn_stop = QPushButton("⏹ 停止")
+        self.btn_stop = QPushButton("停止")
         self.btn_stop.setMinimumWidth(100)
         self.btn_stop.clicked.connect(self.stop_split)
         self.btn_stop.setEnabled(False)
         self.btn_stop.setStyleSheet("""
             QPushButton {
-                background-color: #FF6B6B; color: white; border: none;
-                padding: 8px 15px; border-radius: 6px; min-height: 30px; font-weight: bold;
+                background-color: #ef4444; color: white; border: none;
+                padding: 4px 10px; border-radius: 5px; min-height: 24px; font-weight: bold;
             }
-            QPushButton:hover { background-color: #FF5252; }
+            QPushButton:hover { background-color: #dc2626; }
         """)
 
         button_layout.addWidget(self.btn_preview)
@@ -5229,6 +5474,7 @@ class DocSplitPage(QWidget):
 
         # ===== 结果显示 =====
         result_group = QGroupBox("拆分结果")
+        result_group.setObjectName("contentGroup")
         result_group.setFont(group_font)
         result_layout = QVBoxLayout(result_group)
 
@@ -5299,7 +5545,7 @@ class DocSplitPage(QWidget):
 
             self.label_import_info.setText(
                 f"已导入 {len(header)} 个变量，共 {total_rows} 行数据")
-            self.label_import_info.setStyleSheet("color: #4CAF50; font-weight: bold;")
+            self.label_import_info.setStyleSheet("color: #22c55e; font-weight: bold;")
             self.btn_clear_import.setVisible(True)
 
             # 显示预览表格
@@ -5317,7 +5563,7 @@ class DocSplitPage(QWidget):
             # 第一行用灰色背景标识表头预览
             for col_idx, name in enumerate(header):
                 item = QTableWidgetItem(f"{{{name}}}")
-                item.setBackground(QBrush(QColor("#FFF3E0")))
+                item.setBackground(QBrush(QColor("#eef0ff")))
                 self.import_vars_table.setItem(0, col_idx, item)
 
         except Exception as e:
@@ -5328,7 +5574,7 @@ class DocSplitPage(QWidget):
         self.input_vars = {}
         self.hint_label.setText("可用变量: {原名}  {序号}  {序号:02d}  {日期}  {页码范围}  {标题}")
         self.label_import_info.setText("未导入变量，导入Excel后列名将作为变量名")
-        self.label_import_info.setStyleSheet("color: #999;")
+        self.label_import_info.setStyleSheet("color: #8E8E8E;")
         self.btn_clear_import.setVisible(False)
         self.import_vars_table.setVisible(False)
 
@@ -5469,7 +5715,7 @@ class DocSplitPage(QWidget):
             return
 
         self.result_text.clear()
-        self.result_text.append("👁️ 拆分预览\n")
+        self.result_text.append("拆分预览\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         rule = self._get_rule_key()
@@ -5478,17 +5724,17 @@ class DocSplitPage(QWidget):
         naming_template = self.edit_naming.text() or "{原名}_第{序号}部分"
 
         # 显示命名模板
-        self.result_text.append(f"📝 命名模板: {naming_template}\n")
+        self.result_text.append(f"命名模板: {naming_template}\n")
         if self.input_vars:
             var_names = list(self.input_vars.keys())
             total_rows = max(len(v) for v in self.input_vars.values())
-            self.result_text.append(f"📋 已导入变量: {', '.join(var_names)} ({total_rows}行数据)\n")
+            self.result_text.append(f"已导入变量: {', '.join(var_names)} ({total_rows}行数据)\n")
         self.result_text.append("\n")
 
         for file_path in self.file_list_data:
             ext = os.path.splitext(file_path)[1].lower()
             basename = os.path.basename(file_path)
-            self.result_text.append(f"📄 {basename}\n")
+            self.result_text.append(f"{basename}\n")
 
             try:
                 if ext == '.pdf':
@@ -5530,7 +5776,7 @@ class DocSplitPage(QWidget):
                             self._preview_pdf_bookmarks(
                                 reader, outlines, total_pages)
                         else:
-                            self.result_text.append(f"   ⚠️ 无书签，将回退为按页数拆分\n")
+                            self.result_text.append(f"   [警告] 无书签，将回退为按页数拆分\n")
 
                     elif rule == "by_size":
                         target_mb = params.get('target_size_mb', 5)
@@ -5552,7 +5798,7 @@ class DocSplitPage(QWidget):
 
                 elif ext == '.docx':
                     if not HAS_PYTHON_DOCX:
-                        self.result_text.append(f"   ❌ 缺少 python-docx 库\n")
+                        self.result_text.append(f"   [错误] 缺少 python-docx 库\n")
                         continue
 
                     # 优先使用 Word COM 获取精确页数
@@ -5648,10 +5894,10 @@ class DocSplitPage(QWidget):
                     wb.close()
 
                 else:
-                    self.result_text.append(f"   ⚠️ 不支持的格式\n")
+                    self.result_text.append(f"   [警告] 不支持的格式\n")
 
             except Exception as e:
-                self.result_text.append(f"   ❌ 预览失败: {str(e)}\n")
+                self.result_text.append(f"   [错误] 预览失败: {str(e)}\n")
 
             self.result_text.append("\n")
 
@@ -5666,7 +5912,7 @@ class DocSplitPage(QWidget):
                     title = item.title if hasattr(
                         item, 'title') else f"第{page_num}页"
                     self.result_text.append(
-                        f"   {'  ' * depth}📑 {title} (第{page_num}页起)\n")
+                        f"   {'  ' * depth}{title} (第{page_num}页起)\n")
                 except Exception:
                     pass
 
@@ -5722,7 +5968,7 @@ class DocSplitPage(QWidget):
         self.progress.setVisible(True)
         self.progress.setValue(0)
         self.result_text.clear()
-        self.result_text.append("✂️ 开始拆分...\n")
+        self.result_text.append("开始拆分...\n")
         self.result_text.append("=" * 60 + "\n\n")
 
         self.split_worker = SplitWorker(
@@ -5739,7 +5985,7 @@ class DocSplitPage(QWidget):
     def stop_split(self):
         if self.split_worker and self.split_worker.isRunning():
             self.split_worker.stop()
-            self.result_text.append("\n⏹ 拆分已停止\n")
+            self.result_text.append("\n拆分已停止\n")
         self.btn_split.setEnabled(True)
         self.btn_preview.setEnabled(True)
         self.btn_stop.setEnabled(False)
@@ -5752,9 +5998,9 @@ class DocSplitPage(QWidget):
 
     def on_split_completed(self, output_files):
         self.result_text.append("\n" + "=" * 60 + "\n")
-        self.result_text.append(f"✅ 拆分完成！共生成 {len(output_files)} 个文件：\n\n")
+        self.result_text.append(f"[完成] 拆分完成！共生成 {len(output_files)} 个文件：\n\n")
         for f in output_files:
-            self.result_text.append(f"   📄 {os.path.basename(f)}\n")
+            self.result_text.append(f"   {os.path.basename(f)}\n")
 
         self.progress.setVisible(False)
         self.btn_split.setEnabled(True)
@@ -5770,7 +6016,7 @@ class DocSplitPage(QWidget):
             self, "完成", f"文档拆分完成！共生成 {len(output_files)} 个文件。")
 
     def on_split_error(self, error_msg):
-        self.result_text.append(f"\n❌ {error_msg}\n")
+        self.result_text.append(f"\n[错误] {error_msg}\n")
         self.btn_split.setEnabled(True)
         self.btn_preview.setEnabled(True)
         self.btn_stop.setEnabled(False)
@@ -5802,32 +6048,32 @@ _EASTER_EGG_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')
 EASTER_EGG_FILE = os.path.join(_EASTER_EGG_DIR, 'pup_aide_easter_eggs.json')
 
 HOLIDAYS = {
-    (1, 1): ("🎊 元旦快乐", "新的一年，会更爱你"),
-    (2, 14): ("💝 情人节快乐", "小狗常伴你左右！"),
-    (5, 1): ("🌻 劳动节到啦", "小宝辛苦了，记得好好休息！"),
-    (10, 1): ("🇨🇳 国庆快乐", "长假去哪玩！"),
-    (11, 11): ("😄 双十一买买买", "全场消费张总买单"),
-    (12, 25): ("🎄 圣诞啦", "圣诞老人给你送了只小狗来~"),
-    (12, 31): ("🎆 跨年快乐", "今年的最后一天，来张纪念照吧！"),
+    (1, 1): ("元旦快乐", "新的一年，会更爱你"),
+    (2, 14): ("情人节快乐", "小狗常伴你左右！"),
+    (5, 1): ("劳动节到啦", "小宝辛苦了，记得好好休息！"),
+    (10, 1): ("国庆快乐", "长假去哪玩！"),
+    (11, 11): ("双十一买买买", "全场消费张总买单"),
+    (12, 25): ("圣诞啦", "圣诞老人给你送了只小狗来~"),
+    (12, 31): ("跨年快乐", "今年的最后一天，来张纪念照吧！"),
 }
 
 LUNAR_HOLIDAYS = {
-    (1, 1): ("🧧 新春快乐", "什么时候和小狗一起吃春节的饺子呀"),
-    (1, 15): ("🏮 元宵节快乐", "小狗给你买豆沙馅的元宵来啦~"),
-    (5, 5): ("🐉 端午安康", "豆沙和蜜枣，今年谁更胜一筹呢！"),
-    (7, 7): ("🌌 七夕快乐", "牛郎和织女见面了，我们也要见面啦！"),
-    (8, 15): ("🌕 中秋快乐", "小狗苦恼：月饼这个东西什么时候才能做的好吃一点"),
+    (1, 1): ("新春快乐", "什么时候和小狗一起吃春节的饺子呀"),
+    (1, 15): ("元宵节快乐", "小狗给你买豆沙馅的元宵来啦~"),
+    (5, 5): ("端午安康", "豆沙和蜜枣，今年谁更胜一筹呢！"),
+    (7, 7): ("七夕快乐", "牛郎和织女见面了，我们也要见面啦！"),
+    (8, 15): ("中秋快乐", "小狗苦恼：月饼这个东西什么时候才能做的好吃一点"),
 }
 
 MILESTONES = {
-    1: ("🐕 欢迎使用小狗助理", "终于见面啦，希望小狗助理能成为你的好帮手！"),
-    52: ("🌟 52 次", "恭喜你触发521美餐一顿，快去凭截图找小狗兑换吧！"),
-    99: ("💖 99 次", "恭喜你触发长长久久套餐，凭截图可以找小狗兑换任意一个你喜欢的礼物！"),
-    1314: ("💕 1314 次", "恭喜你触发一生一世任务，小狗将带你出去旅游哦~"),
-    2000: ("🎯 2000 次", "恭喜你触发里程碑任务，需要带小狗吃一顿美食哦~"),
-    3000: ("🏆 3000 次", "恭喜你触发里程碑任务，需要带小狗出去玩哦~"),
-    5000: ("👑 5000 次", "恭喜你触发惊喜奖励，小狗将带你出去度！蜜！月！"),
-    10000: ("🌈 10000 次", "不可思议！你触发了传奇奖励！"),
+    1: ("欢迎使用小狗助理", "终于见面啦，希望小狗助理能成为你的好帮手！"),
+    52: ("52 次", "恭喜你触发521美餐一顿，快去凭截图找小狗兑换吧！"),
+    99: ("99 次", "恭喜你触发长长久久套餐，凭截图可以找小狗兑换任意一个你喜欢的礼物！"),
+    1314: ("1314 次", "恭喜你触发一生一世任务，小狗将带你出去旅游哦~"),
+    2000: ("2000 次", "恭喜你触发里程碑任务，需要带小狗吃一顿美食哦~"),
+    3000: ("3000 次", "恭喜你触发里程碑任务，需要带小狗出去玩哦~"),
+    5000: ("5000 次", "恭喜你触发惊喜奖励，小狗将带你出去度！蜜！月！"),
+    10000: ("10000 次", "不可思议！你触发了传奇奖励！"),
 }
 
 
@@ -5881,30 +6127,37 @@ def _lunar_to_solar(year, month, day):
 
 
 class EasterEggDialog(QDialog):
-    def __init__(self, parent, title, message, emoji="🐕"):
+    def __init__(self, parent, title, message, emoji=""):
         super().__init__(parent)
         self.setWindowTitle("小狗助理彩蛋")
-        self.setFixedSize(420, 280)
+        self.setMinimumSize(360, 200)
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(15)
+        layout.setSpacing(10)
         layout.setContentsMargins(30, 25, 30, 25)
 
-        emoji_label = QLabel(emoji)
-        emoji_font = QFont()
-        emoji_font.setPointSize(40)
-        emoji_label.setFont(emoji_font)
-        emoji_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(emoji_label)
+        # 用线性图标代替 emoji
+        if HAS_QTSVG:
+            icon_label = QLabel()
+            icon_pixmap = _make_icon_pixmap(
+                '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>'
+                '<path d="M8 14s1.5 2 4 2 4-2 4-2"/>'
+                '<line x1="9" y1="9" x2="9.01" y2="9"/>'
+                '<line x1="15" y1="9" x2="15.01" y2="9"/>',
+                36, "#6C7BF2"
+            )
+            icon_label.setPixmap(icon_pixmap)
+            icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(icon_label)
 
         title_label = QLabel(title)
         title_font = QFont()
-        title_font.setPointSize(16)
+        title_font.setPointSize(13)
         title_font.setBold(True)
         title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("color: #FF9500;")
+        title_label.setStyleSheet("color: #6C7BF2;")
         layout.addWidget(title_label)
 
         msg_label = QLabel(message)
@@ -5921,17 +6174,17 @@ class EasterEggDialog(QDialog):
         btn.setFixedWidth(120)
         btn.setStyleSheet("""
             QPushButton {
-                background-color: #FFB347;
+                background-color: #6C7BF2;
                 color: white;
                 border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                min-height: 30px;
+                padding: 4px 10px;
+                border-radius: 8px;
+                min-height: 24px;
                 font-weight: bold;
                 font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #FF9500;
+                background-color: #818EF5;
             }
         """)
         btn_layout = QHBoxLayout()
@@ -5994,7 +6247,7 @@ class EasterEggManager:
         self._check_birthday()
         self._check_consecutive()
 
-    def _show_dialog(self, title, message, emoji="🐕"):
+    def _show_dialog(self, title, message, emoji=""):
         dlg = EasterEggDialog(self.parent, title, message, emoji)
         dlg.exec()
 
@@ -6022,9 +6275,9 @@ class EasterEggManager:
         if today == anni_this_year:
             if str(years_together) not in shown:
                 self._show_dialog(
-                    "🎉 纪念日快乐",
-                    f"今天是我们在一起 {years_together} 年的纪念日！\n小狗会一直爱你哦 🥰",
-                    "💕"
+                    "纪念日快乐",
+                    f"今天是我们在一起 {years_together} 年的纪念日！\n小狗会一直爱你哦",
+                    ""
                 )
                 shown.append(str(years_together))
                 self.data['shown_anniversary'] = shown
@@ -6033,10 +6286,10 @@ class EasterEggManager:
             if str(years_together) not in shown:
                 days_passed = (today - anni_this_year).days
                 self._show_dialog(
-                    "💕 纪念日过啦",
+                    "纪念日过啦",
                     f"{days_passed} 天前是我们在一起 {years_together} 年的纪念日，\n"
-                    f"当天你没有打开使用哦，\n我们一定已经度过了一个开心的纪念日 🌹",
-                    "🌹"
+                    f"当天你没有打开使用哦，\n我们一定已经度过了一个开心的纪念日",
+                    ""
                 )
                 shown.append(str(years_together))
                 self.data['shown_anniversary'] = shown
@@ -6056,7 +6309,7 @@ class EasterEggManager:
         solar_key = (today.month, today.day)
         if solar_key in HOLIDAYS:
             title, msg = HOLIDAYS[solar_key]
-            self._show_dialog(title, msg, "🎉")
+            self._show_dialog(title, msg, "")
             triggered = True
 
         # 农历节日
@@ -6066,7 +6319,7 @@ class EasterEggManager:
                 if result:
                     sy, sm, sd = result
                     if (sm, sd) == (today.month, today.day):
-                        self._show_dialog(title, msg, "🎉")
+                        self._show_dialog(title, msg, "")
                         triggered = True
                         break
 
@@ -6081,7 +6334,7 @@ class EasterEggManager:
 
         if count in MILESTONES and count not in shown:
             title, msg = MILESTONES[count]
-            self._show_dialog(title, f"你已经打开小狗助理 {count} 次了！\n{msg}", "🏆")
+            self._show_dialog(title, f"你已经打开小狗助理 {count} 次了！\n{msg}", "")
             shown.append(count)
             self.data['shown_milestones'] = shown
             _save_easter_egg_data(self.data)
@@ -6100,9 +6353,9 @@ class EasterEggManager:
                     if today_str + '_bday' not in shown:
                         age = today.year - bday.year
                         self._show_dialog(
-                            "🎂 生日快乐",
+                            "生日快乐",
                             f"今天是小宝的 {age} 岁生日！\n新的一岁，小狗会继续陪你过好每一天！",
-                            "🎂"
+                            ""
                         )
                         shown.append(today_str + '_bday')
                         self.data['shown_holidays'] = shown
@@ -6121,9 +6374,9 @@ class EasterEggManager:
                 if (sm, sd) == (today.month, today.day):
                     if today_str + '_lbday' not in shown:
                         self._show_dialog(
-                            "🎂 农历生日快乐",
+                            "农历生日快乐",
                             "今天是小宝的农历生日！\n生日快乐哦，小宝~",
-                            "🎂"
+                            ""
                         )
                         shown.append(today_str + '_lbday')
                         self.data['shown_holidays'] = shown
@@ -6137,12 +6390,12 @@ class EasterEggManager:
         for m in milestones:
             if days == m and m not in shown:
                 msgs = {
-                    7: "已连续使用 7 天啦，有什么新需求就告诉小狗 💪",
-                    30: "连续使用 30 天啦！看来你已经是个熟练工了 🌟",
-                    100: "连续使用 100 天啦！你一定是个电脑高手了 🔥",
+                    7: "已连续使用 7 天啦，有什么新需求就告诉小狗",
+                    30: "连续使用 30 天啦！看来你已经是个熟练工了",
+                    100: "连续使用 100 天啦！你一定是个电脑高手了",
                     365: "连续使用 365 天啦！看来小狗助理很有用！太棒啦！",
                 }
-                self._show_dialog("🔥 连续使用", msgs[m], "💪")
+                self._show_dialog("连续使用", msgs[m], "")
                 shown.append(m)
                 self.data['shown_consecutive'] = shown
                 _save_easter_egg_data(self.data)
@@ -6159,12 +6412,12 @@ class FirstLoginDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(30, 25, 30, 25)
 
-        title = QLabel("🐕 欢迎来到小狗助理！")
+        title = QLabel("欢迎来到小狗助理！")
         title_font = QFont()
-        title_font.setPointSize(18)
+        title_font.setPointSize(13)
         title_font.setBold(True)
         title.setFont(title_font)
-        title.setStyleSheet("color: #FF9500;")
+        title.setStyleSheet("color: #6C7BF2;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
@@ -6180,13 +6433,13 @@ class FirstLoginDialog(QDialog):
         self.nick_edit.setPlaceholderText("输入你的昵称...")
         self.nick_edit.setMaxLength(20)
         nick_font = QFont()
-        nick_font.setPointSize(14)
+        nick_font.setPointSize(11)
         self.nick_edit.setFont(nick_font)
         self.nick_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.nick_edit.returnPressed.connect(self._confirm)
         layout.addWidget(self.nick_edit)
 
-        btn = QPushButton("开始使用 🐾")
+        btn = QPushButton("开始使用 ")
         btn.clicked.connect(self._confirm)
         btn.setFixedWidth(160)
         btn_layout = QHBoxLayout()
@@ -6196,14 +6449,14 @@ class FirstLoginDialog(QDialog):
         layout.addLayout(btn_layout)
 
         self.setStyleSheet("""
-            QDialog { background-color: white; border-radius: 8px; }
-            QLineEdit { padding: 10px; border: 2px solid #FFB347; border-radius: 8px;
-                        min-height: 30px; font-size: 14px; }
-            QLineEdit:focus { border-color: #FF9500; }
-            QPushButton { background-color: #FFB347; color: white; border: none;
-                          padding: 8px 20px; border-radius: 6px; font-weight: bold;
-                          min-height: 32px; }
-            QPushButton:hover { background-color: #FF9500; }
+            QDialog { background-color: white; border-radius: 8px; border: 1px solid #E5E5E5; }
+            QLineEdit { padding: 6px 10px; border: 1px solid #E5E5E5; border-radius: 6px;
+                        min-height: 24px; font-size: 13px; }
+            QLineEdit:focus { border-color: #6C7BF2; }
+            QPushButton { background-color: #6C7BF2; color: white; border: none;
+                          padding: 4px 12px; border-radius: 8px; font-weight: 500;
+                          min-height: 24px; }
+            QPushButton:hover { background-color: #818EF5; }
         """)
 
     def _confirm(self):
@@ -6211,8 +6464,8 @@ class FirstLoginDialog(QDialog):
         if not nick:
             self.nick_edit.setStyleSheet(
                 self.nick_edit.styleSheet().replace(
-                    "border: 2px solid #FFB347;",
-                    "border: 2px solid red;"))
+                    "border: 1px solid #E5E5E5;",
+                    "border: 1px solid #DC4A4A;"))
             return
         self.nickname = nick
         self.accept()
@@ -6223,18 +6476,18 @@ class EasterEggSettingsDialog(QDialog):
         super().__init__(parent)
         self.data = data
         self.setWindowTitle("神秘彩蛋")
-        self.setFixedSize(340, 240)
+        self.setMinimumSize(340, 240)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         layout.setContentsMargins(25, 20, 25, 20)
 
-        title = QLabel("🐕 神秘彩蛋")
+        title = QLabel("神秘彩蛋")
         title_font = QFont()
-        title_font.setPointSize(16)
+        title_font.setPointSize(13)
         title_font.setBold(True)
         title.setFont(title_font)
-        title.setStyleSheet("color: #FF9500;")
+        title.setStyleSheet("color: #6C7BF2;")
         layout.addWidget(title)
 
         # 计算陪伴天数
@@ -6250,21 +6503,22 @@ class EasterEggSettingsDialog(QDialog):
         info_font.setPointSize(13)
 
         name_text = f"{nickname}，" if nickname else ""
-        self.days_label = QLabel(f"{name_text}小狗助理已经陪伴你 {days} 天了 🐾")
+        self.days_label = QLabel(f"{name_text}小狗助理已经陪伴你 {days} 天了 ")
         self.days_label.setFont(info_font)
         self.days_label.setStyleSheet("color: #555;")
+        self.days_label.setWordWrap(True)
         layout.addWidget(self.days_label)
 
-        hint_label = QLabel("多多使用会有惊喜彩蛋哦 ✨")
+        hint_label = QLabel("多多使用会有惊喜彩蛋哦 ")
         hint_label.setFont(info_font)
-        hint_label.setStyleSheet("color: #FF9500;")
+        hint_label.setStyleSheet("color: #6C7BF2;")
         layout.addWidget(hint_label)
 
         # 修改昵称
         nick_layout = QHBoxLayout()
         nick_label = QLabel("昵称:")
         nick_label.setFont(info_font)
-        nick_label.setStyleSheet("color: #999;")
+        nick_label.setStyleSheet("color: #8E8E8E;")
         self.nick_edit = QLineEdit()
         self.nick_edit.setText(nickname)
         self.nick_edit.setMaxLength(20)
@@ -6291,11 +6545,12 @@ class EasterEggSettingsDialog(QDialog):
         layout.addLayout(btn_layout)
 
         self.setStyleSheet("""
-            QDialog { background-color: white; border-radius: 8px; }
-            QLineEdit { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; min-height: 24px; }
-            QPushButton { background-color: #FFB347; color: white; border: none;
-                          padding: 6px 15px; border-radius: 6px; font-weight: bold; }
-            QPushButton:hover { background-color: #FF9500; }
+            QDialog { background-color: white; border-radius: 8px; border: 1px solid #E5E5E5; }
+            QLineEdit { padding: 6px 10px; border: 1px solid #E5E5E5; border-radius: 6px; min-height: 24px; }
+            QLineEdit:focus { border-color: #6C7BF2; }
+            QPushButton { background-color: #6C7BF2; color: white; border: none;
+                          padding: 4px 12px; border-radius: 8px; font-weight: 500; }
+            QPushButton:hover { background-color: #818EF5; }
         """)
 
     def _change_nickname(self):
@@ -6311,7 +6566,7 @@ class EasterEggSettingsDialog(QDialog):
             days = (date.today() - first_date).days
         except Exception:
             days = 0
-        self.days_label.setText(f"{new_nick}，小狗助理已经陪伴你 {days} 天了 🐾")
+        self.days_label.setText(f"{new_nick}，小狗助理已经陪伴你 {days} 天了 ")
 
 
 def main():
