@@ -52,31 +52,62 @@ except ImportError:
 qApp = None
 
 
+# ========== PupAide 3.0 现代UI主题色（橙色系+渐变） ==========
+# 核心品牌色
+_C_ORANGE_BASE = "#FF6B35"        # 亮橙
+_C_ORANGE_DARK = "#E85526"        # 深橙 hover
+_C_ORANGE_DEEP = "#CC4418"        # 更深 pressed
+# 渐变端点
+_C_GRADIENT_START = "#FF8F5E"     # 浅橙端
+_C_GRADIENT_END = "#FF5722"       # 深橙端
+# 最终使用的主色（取渐变中点附近的协调橙）
+_C_PRIMARY = "#FF6B35"            # 品牌主色 - 亮橙
+_C_PRIMARY_HOVER = "#E85526"      # 主色悬停
+_C_PRIMARY_PRESSED = "#CC4418"    # 主色按下
+_C_PRIMARY_LIGHT = "#FFF1EB"      # 主色浅背景
+_C_PRIMARY_DISABLED = "#FFD4C4"   # 主色禁用
+_C_NAV_ACTIVE = "#FF6B35"         # 导航栏选中色（亮橙）
+_C_NAV_ACTIVE_LIGHT = "#FFF1EB"   # 导航栏选中浅背景
+_C_BG_MAIN = "#F8F9FA"            # 主背景
+_C_BG_SIDEBAR = "#FFFFFF"         # 侧边栏背景
+_C_BG_CARD = "#FFFFFF"            # 卡片背景
+_C_BG_INPUT = "#FAFAFA"           # 输入框背景
+_C_BORDER = "#E5E7EB"             # 边框色
+_C_BORDER_LIGHT = "#F0F1F3"       # 浅边框
+_C_TEXT_MAIN = "#1D2129"          # 主文字
+_C_TEXT_SUB = "#86909C"           # 次文字
+_C_TEXT_LIGHT = "#C9CDD4"         # 浅文字
+_C_HOVER = "#F7F8FA"              # 悬停背景
+_C_SCROLLBAR = "#D1D5DB"          # 滚动条
+# 狗爪专用品牌橙色
+_C_PAW_ORANGE = "#FF6B35"
+
+
 # ========== SVG 线性轮廓图标系统 (2px描边, 无填充, 圆角) ==========
-# Lucide 风格图标路径数据
+# 源力设计系统风格图标路径数据（viewBox 24x24，线性，2px描边）
 _NAV_ICONS = [
-    # 重复文件查找器 - copy图标
-    '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
-    # 文件夹同步/备份 - refresh图标
-    '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/>',
-    # 磁盘空间分析器 - pie-chart图标
-    '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
-    # 文件批量筛选 - filter图标
-    '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
-    # 文件名称提取器 - scissors图标
-    '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>',
-    # 文档拆分工具 - columns图标
-    '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/>',
-    # 文本重复识别 - repeat图标
-    '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+    # 重复文件查找器 - copy
+    '<rect x="9" y="9" width="10" height="10" rx="2" fill="none"/><path d="M6 17H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1" fill="none"/>',
+    # 文件夹同步/备份 - sync/refresh
+    '<path d="M21.5 8.5A9.5 9.5 0 0 0 12 3a9.5 9.5 0 0 0-9.5 9.5c0 2.6 1.1 4.9 2.8 6.6" fill="none"/><path d="M20.5 4v4.5H16" fill="none"/><path d="M2.5 15.5A9.5 9.5 0 0 0 12 21a9.5 9.5 0 0 0 9.5-9.5c0-2.6-1.1-4.9-2.8-6.6" fill="none"/><path d="M3.5 20v-4.5H8" fill="none"/>',
+    # 磁盘空间分析器 - chart
+    '<rect x="3" y="3" width="18" height="18" rx="2" fill="none"/><path d="M3 12h18" fill="none"/><path d="M8 12v6" fill="none"/><path d="M12 12v4" fill="none"/><path d="M16 12v7" fill="none"/>',
+    # 文件批量筛选 - filter
+    '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" fill="none"/>',
+    # 文件名称提取器 - file-description
+    '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none"/><polyline points="14 2 14 8 20 8" fill="none"/><line x1="8" y1="13" x2="16" y2="13" fill="none"/><line x1="8" y1="17" x2="16" y2="17" fill="none"/>',
+    # 文档拆分工具 - split/columns
+    '<rect x="3" y="3" width="18" height="18" rx="2" fill="none"/><line x1="12" y1="3" x2="12" y2="21" fill="none"/>',
+    # 文本重复识别 - repeat
+    '<polyline points="17 1 21 5 17 9" fill="none"/><path d="M3 11V9a4 4 0 0 1 4-4h14" fill="none"/><polyline points="7 23 3 19 7 15" fill="none"/><path d="M21 13v2a4 4 0 0 1-4 4H3" fill="none"/>',
 ]
 
-# 右上角图标
-_ICON_PERSON = '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'
-_ICON_INFO = '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>'
+# 右上角图标（源力风格）
+_ICON_PERSON = '<circle cx="12" cy="8" r="4" fill="none"/><path d="M4 20a8 8 0 0 1 16 0" fill="none"/>'
+_ICON_INFO = '<circle cx="12" cy="12" r="10" fill="none"/><line x1="12" y1="16" x2="12" y2="12" fill="none"/><circle cx="12" cy="7.5" r="1" fill="currentColor"/>'
 
 
-def _create_outline_icon(svg_paths, size=18, color="#8E8E8E"):
+def _create_outline_icon(svg_paths, size=20, color=_C_TEXT_SUB):
     """从SVG路径创建线性轮廓QIcon（2px描边, 无填充, 圆角）"""
     if not HAS_QTSVG:
         return QIcon()
@@ -118,366 +149,778 @@ def _make_icon_pixmap(svg_paths, size, color):
     return pixmap
 
 
+# 勾选框/单选框 SVG 图标 (Phosphor 风格, stroke-width=16, viewBox 256)
+_CHECKBOX_SVG_UNCHECKED = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">'
+    '<rect width="256" height="256" fill="none"/>'
+    '<rect x="40" y="40" width="176" height="176" rx="12" fill="none" '
+    'stroke="#C9CDD4" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"/>'
+    '</svg>'
+)
+_CHECKBOX_SVG_CHECKED = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">'
+    '<rect width="256" height="256" fill="none"/>'
+    '<rect x="40" y="40" width="176" height="176" rx="12" fill="' + _C_PRIMARY + '" '
+    'stroke="' + _C_PRIMARY + '" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"/>'
+    '<polyline points="88 136 112 160 168 104" fill="none" '
+    'stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="18"/>'
+    '</svg>'
+)
+_RADIO_SVG_UNCHECKED = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">'
+    '<rect width="256" height="256" fill="none"/>'
+    '<circle cx="128" cy="128" r="88" fill="none" '
+    'stroke="#C9CDD4" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"/>'
+    '</svg>'
+)
+_RADIO_SVG_CHECKED = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">'
+    '<rect width="256" height="256" fill="none"/>'
+    '<circle cx="128" cy="128" r="88" fill="none" '
+    'stroke="' + _C_PRIMARY + '" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"/>'
+    '<circle cx="128" cy="128" r="40" fill="' + _C_PRIMARY + '"/>'
+    '</svg>'
+)
+_ICON_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'PupAide', 'icons')
+
+# 狗爪图标 (Phosphor paw-print, 橙色品牌标识 - 与主蓝色系分离)
+_PAW_ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">'
+    '<rect width="256" height="256" fill="none"/>'
+    '<circle cx="212" cy="108" r="20" fill="none" stroke="' + _C_PAW_ORANGE + '" '
+    'stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/>'
+    '<circle cx="44" cy="108" r="20" fill="none" stroke="' + _C_PAW_ORANGE + '" '
+    'stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/>'
+    '<circle cx="92" cy="60" r="20" fill="none" stroke="' + _C_PAW_ORANGE + '" '
+    'stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/>'
+    '<circle cx="164" cy="60" r="20" fill="none" stroke="' + _C_PAW_ORANGE + '" '
+    'stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/>'
+    '<path d="M128,104A36,36,0,0,0,93.43,130a43.49,43.49,0,0,1-20.67,25.9,32,32,0,0,0,27.73,57.62,72.49,72.49,0,0,1,55,0,32,32,0,0,0,27.73-57.62A43.46,43.46,0,0,1,162.57,130,36,36,0,0,0,128,104Z" '
+    'fill="none" stroke="' + _C_PAW_ORANGE + '" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/>'
+    '</svg>'
+)
+
+
+def _render_paw_pixmap(size=256):
+    renderer = QSvgRenderer(QByteArray(_PAW_ICON_SVG.encode('utf-8')))
+    if not renderer.isValid():
+        return QPixmap()
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderer.render(painter, QRectF(0, 0, size, size))
+    painter.end()
+    return pixmap
+
+
+def _ensure_indicator_icons():
+    os.makedirs(_ICON_DIR, exist_ok=True)
+    mapping = {
+        'checkbox_unchecked': _CHECKBOX_SVG_UNCHECKED,
+        'checkbox_checked': _CHECKBOX_SVG_CHECKED,
+        'radio_unchecked': _RADIO_SVG_UNCHECKED,
+        'radio_checked': _RADIO_SVG_CHECKED,
+    }
+    urls = {}
+    size = 64
+    for name, svg in mapping.items():
+        p = os.path.join(_ICON_DIR, name + '.png')
+        try:
+            renderer = QSvgRenderer(QByteArray(svg.encode('utf-8')))
+            if renderer.isValid():
+                pixmap = QPixmap(size, size)
+                pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(pixmap)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                renderer.render(painter, QRectF(0, 0, size, size))
+                painter.end()
+                pixmap.save(p, 'PNG')
+                urls[name] = p.replace('\\', '/')
+            else:
+                urls[name] = ''
+        except Exception:
+            urls[name] = ''
+    return urls
+
+
 class PupAideMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("小狗助理 PupAide - 办公百宝箱")
         self.setMinimumSize(1200, 800)
 
-        # 设置主窗口样式 - Goink UI 风格
-        # 主色: #6C7BF2 (goink primary: oklch(0.546 0.245 262.881))
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #f8f9fa;
-            }
-            QPushButton {
-                background-color: #6C7BF2;
+        # ========== PupAide 3.0 现代UI主题 ==========
+        _icon_urls = _ensure_indicator_icons()
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {_C_BG_MAIN};
+            }}
+            QWidget {{
+                color: {_C_TEXT_MAIN};
+                font-size: 13px;
+                font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+            }}
+            QWidget#scrollContainer {{
+                background-color: transparent;
+            }}
+            QScrollArea#pageScroll {{
+                background-color: transparent;
+                border: none;
+            }}
+            QScrollArea#pageScroll > QWidget > QWidget {{
+                background-color: transparent;
+            }}
+            /* ===== 主按钮（与输入框协调，高度32px，字号13px） ===== */
+            QPushButton {{
+                background-color: {_C_PRIMARY};
                 color: #ffffff;
                 border: none;
-                border-radius: 8px;
-                padding: 4px 10px;
-                min-height: 24px;
+                border-radius: 6px;
+                padding: 5px 16px;
+                min-height: 22px;
+                max-height: 32px;
                 font-weight: 500;
                 font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-            QPushButton:pressed {
-                background-color: #5A69E0;
-            }
-            QPushButton:disabled {
-                background-color: #C5CAF8;
-                color: #E8E9F0;
-            }
-            QMessageBox QPushButton {
-                background-color: #F5F5F5;
-                color: #2E2E2E;
-                border: 1px solid #E5E5E5;
-                padding: 4px 10px;
-                min-height: 24px;
-                border-radius: 8px;
-            }
-            QMessageBox QPushButton:hover {
-                background-color: #E5E5E5;
-            }
-
-            QListWidget {
-                border: 1px solid #E5E5E5;
-                border-radius: 8px;
-                background-color: white;
-                outline: none;
-            }
-            QListWidget::item {
-                padding: 6px 10px;
-                border-radius: 5px;
-                margin: 1px 3px;
-            }
-            QListWidget::item:selected {
-                background-color: #6C7BF2;
+            }}
+            QPushButton:hover {{
+                background-color: {_C_PRIMARY_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {_C_PRIMARY_PRESSED};
+            }}
+            QPushButton:disabled {{
+                background-color: {_C_PRIMARY_DISABLED};
+                color: #FFFFFF;
+            }}
+            /* ===== 次要按钮/对话框按钮 ===== */
+            QPushButton#secondaryBtn, QMessageBox QPushButton {{
+                background-color: {_C_BG_CARD};
+                color: {_C_TEXT_MAIN};
+                border: 1px solid {_C_BORDER};
+                padding: 5px 16px;
+                min-height: 22px;
+                max-height: 32px;
+                border-radius: 6px;
+                font-weight: 500;
+                font-size: 13px;
+            }}
+            QPushButton#secondaryBtn:hover, QMessageBox QPushButton:hover {{
+                background-color: {_C_PRIMARY_LIGHT};
+                border-color: {_C_PRIMARY};
+                color: {_C_PRIMARY};
+            }}
+            /* ===== 危险按钮 ===== */
+            QPushButton#dangerBtn {{
+                background-color: #EF4444;
                 color: #ffffff;
-            }
-            QListWidget::item:hover:!selected {
-                background-color: #F5F5F5;
-            }
-            QGroupBox {
-                font-weight: 600;
-                border: 1px solid #E5E5E5;
+                border: none;
+                border-radius: 6px;
+                padding: 5px 16px;
+                min-height: 22px;
+                max-height: 32px;
+                font-weight: 500;
+                font-size: 13px;
+            }}
+            QPushButton#dangerBtn:hover {{
+                background-color: #DC2626;
+            }}
+            QPushButton#dangerBtn:pressed {{
+                background-color: #B91C1C;
+            }}
+            QPushButton#dangerBtn:disabled {{
+                background-color: #FECACA;
+                color: #FFFFFF;
+            }}
+
+            /* ===== 导航列表 ===== */
+            QListWidget#navList {{
+                border: none;
+                border-radius: 0px;
+                background-color: transparent;
+                outline: none;
+                padding: 8px 8px;
+                spacing: 2px;
+            }}
+            QListWidget#navList::item {{
+                padding: 0px 12px;
                 border-radius: 8px;
-                margin-top: 12px;
-                padding-top: 12px;
-                color: #1A1A1A;
-            }
-            QGroupBox::title {
+                margin: 2px 0px;
+                height: 44px;
+                color: {_C_TEXT_SUB};
+                font-weight: 500;
+                font-size: 13px;
+            }}
+            QListWidget#navList::item:selected {{
+                background-color: {_C_NAV_ACTIVE_LIGHT};
+                color: {_C_NAV_ACTIVE};
+                font-weight: 600;
+                border-left: 3px solid {_C_NAV_ACTIVE};
+                padding-left: 9px;
+            }}
+            QListWidget#navList::item:hover:!selected {{
+                background-color: {_C_HOVER};
+                color: {_C_TEXT_MAIN};
+            }}
+
+            /* ===== 通用ListWidget ===== */
+            QListWidget {{
+                border: 1px solid {_C_BORDER};
+                border-radius: 10px;
+                background-color: {_C_BG_CARD};
+                outline: none;
+                padding: 4px;
+            }}
+            QListWidget::item {{
+                padding: 8px 12px;
+                border-radius: 6px;
+                margin: 2px;
+            }}
+            QListWidget::item:selected {{
+                background-color: {_C_PRIMARY};
+                color: #ffffff;
+            }}
+            QListWidget::item:hover:!selected {{
+                background-color: {_C_PRIMARY_LIGHT};
+                color: {_C_PRIMARY};
+            }}
+
+            /* ===== GroupBox 卡片 ===== */
+            QGroupBox {{
+                font-weight: 600;
+                font-size: 13px;
+                border: 1px solid {_C_BORDER};
+                border-radius: 12px;
+                margin-top: 16px;
+                padding: 16px 14px 14px 14px;
+                background-color: {_C_BG_CARD};
+                color: {_C_TEXT_MAIN};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 6px;
-            }
-            QTextEdit {
-                border: 1px solid #E5E5E5;
-                border-radius: 6px;
-                font-family: 'Consolas', 'Microsoft YaHei', monospace;
+                left: 14px;
+                padding: 0 8px;
+                color: {_C_PRIMARY};
+                background-color: {_C_BG_CARD};
+            }}
+
+            /* ===== 文本框 ===== */
+            QTextEdit {{
+                border: 1px solid {_C_BORDER};
+                border-radius: 8px;
+                font-family: 'Consolas', 'Microsoft YaHei UI', monospace;
+                font-size: 12px;
+                padding: 10px;
+                background-color: {_C_BG_CARD};
+                selection-background-color: {_C_PRIMARY};
+                selection-color: #ffffff;
+            }}
+            QTextEdit:focus {{
+                border-color: {_C_PRIMARY};
+                border-width: 2px;
+            }}
+
+            /* ===== 输入框 ===== */
+            QLineEdit {{
+                padding: 8px 14px;
+                border: 1px solid {_C_BORDER};
+                border-radius: 8px;
+                min-height: 20px;
+                background-color: {_C_BG_INPUT};
+                color: {_C_TEXT_MAIN};
                 font-size: 13px;
-                padding: 6px;
-                background-color: white;
-            }
-            QTextEdit:focus {
-                border-color: #6C7BF2;
-            }
-            QLineEdit {
-                padding: 6px 10px;
-                border: 1px solid #E5E5E5;
-                border-radius: 6px;
-                min-height: 24px;
-                background-color: white;
-                color: #1A1A1A;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border-color: #6C7BF2;
-            }
-            QProgressBar {
-                border: 1px solid #E5E5E5;
+                selection-background-color: {_C_PRIMARY};
+                selection-color: #ffffff;
+            }}
+            QLineEdit:focus {{
+                border-color: {_C_PRIMARY};
+                border-width: 2px;
+                background-color: {_C_BG_CARD};
+                padding: 7px 13px;
+            }}
+
+            /* ===== 进度条 ===== */
+            QProgressBar {{
+                border: none;
                 border-radius: 6px;
                 text-align: center;
-                min-height: 20px;
-                background-color: #F5F5F5;
-                font-size: 11px;
-                color: #8E8E8E;
-            }
-            QProgressBar::chunk {
-                background-color: #6C7BF2;
-                border-radius: 5px;
-            }
-            QSplitter::handle {
-                background-color: #E5E5E5;
-                width: 2px;
-            }
-            QSplitter::handle:hover {
-                background-color: #6C7BF2;
-            }
-            QComboBox {
-                padding: 4px 10px;
-                border: 1px solid #E5E5E5;
+                min-height: 8px;
+                max-height: 8px;
+                background-color: {_C_BORDER_LIGHT};
+                font-size: 0px;
+                color: transparent;
+            }}
+            QProgressBar::chunk {{
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {_C_GRADIENT_END}, stop:1 {_C_GRADIENT_START});
                 border-radius: 6px;
-                min-height: 24px;
-                background-color: white;
-                font-size: 13px;
-            }
-            QComboBox:focus {
-                border-color: #6C7BF2;
-            }
-            QSpinBox {
-                padding: 4px 10px;
-                border: 1px solid #E5E5E5;
-                border-radius: 6px;
-                min-height: 24px;
-                background-color: white;
-            }
-            QSpinBox:focus {
-                border-color: #6C7BF2;
-            }
-            QTabWidget::pane {
-                border: 1px solid #E5E5E5;
+            }}
+
+            /* ===== 分割器 ===== */
+            QSplitter::handle {{
+                background-color: transparent;
+                width: 0px;
+            }}
+            QSplitter::handle:hover {{
+                background-color: {_C_PRIMARY};
+            }}
+
+            /* ===== 下拉框 ===== */
+            QComboBox {{
+                padding: 7px 14px;
+                border: 1px solid {_C_BORDER};
                 border-radius: 8px;
-                background-color: white;
-            }
-            QTabBar::tab {
-                padding: 5px 14px;
-                border: 1px solid #E5E5E5;
-                border-bottom: none;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                background-color: #F5F5F5;
-                color: #8E8E8E;
+                min-height: 20px;
+                background-color: {_C_BG_INPUT};
+                font-size: 13px;
+            }}
+            QComboBox:focus {{
+                border-color: {_C_PRIMARY};
+                border-width: 2px;
+                padding: 6px 13px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 28px;
+            }}
+            QComboBox::down-arrow {{
+                width: 10px;
+                height: 10px;
+            }}
+            QComboBox QAbstractItemView {{
+                border: 1px solid {_C_BORDER};
+                border-radius: 8px;
+                background-color: {_C_BG_CARD};
+                selection-background-color: {_C_PRIMARY_LIGHT};
+                selection-color: {_C_PRIMARY};
+                outline: none;
+                padding: 4px;
+            }}
+
+            /* ===== 数字输入框 ===== */
+            QSpinBox {{
+                padding: 5px 8px;
+                border: 1px solid {_C_BORDER};
+                border-radius: 6px;
+                min-height: 20px;
+                background-color: {_C_BG_INPUT};
+                font-size: 13px;
+            }}
+            QSpinBox:focus {{
+                border-color: {_C_PRIMARY};
+                border-width: 2px;
+                padding: 4px 7px;
+            }}
+
+/* ===== 选项卡 ===== */
+            QTabWidget::pane {{
+                border: 1px solid {_C_BORDER};
+                border-radius: 10px;
+                background-color: {_C_BG_CARD};
+                padding: 4px;
+                top: -1px;
+            }}
+            QTabBar::tab {{
+                padding: 8px 20px;
+                border: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                background-color: transparent;
+                color: {_C_TEXT_SUB};
                 font-weight: 500;
                 font-size: 13px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background-color: white;
-                color: #6C7BF2;
-                border-bottom: 2px solid #6C7BF2;
-            }
-            QTabBar::tab:hover:!selected {
-                background-color: #E5E5E5;
-            }
-            QTableWidget {
-                border: 1px solid #E5E5E5;
-                border-radius: 8px;
-                gridline-color: #F5F5F5;
-                background-color: white;
-            }
-            QTableWidget::item {
-                padding: 3px 6px;
-            }
-            QHeaderView::section {
-                background-color: #F5F5F5;
-                color: #1A1A1A;
-                padding: 4px 6px;
-                border: none;
-                border-bottom: 2px solid #E5E5E5;
+                margin: 0 2px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: {_C_BG_CARD};
+                color: {_C_PRIMARY};
+                border-bottom: 2px solid {_C_PRIMARY};
                 font-weight: 600;
-            }
-            QCheckBox {
-                spacing: 6px;
-                color: #1A1A1A;
-            }
-            QCheckBox::indicator {
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {_C_HOVER};
+                color: {_C_TEXT_MAIN};
+            }}
+
+            /* ===== 表格 ===== */
+            QTableWidget {{
+                border: 1px solid {_C_BORDER};
+                border-radius: 10px;
+                gridline-color: {_C_BORDER_LIGHT};
+                background-color: {_C_BG_CARD};
+                selection-background-color: {_C_PRIMARY};
+                selection-color: #ffffff;
+                alternate-background-color: {_C_BG_INPUT};
+            }}
+            QTableWidget::item {{
+                padding: 6px 10px;
+                border-bottom: 1px solid {_C_BORDER_LIGHT};
+            }}
+            QHeaderView::section {{
+                background-color: {_C_BG_INPUT};
+                color: {_C_TEXT_MAIN};
+                padding: 10px 10px;
+                border: none;
+                border-bottom: 2px solid {_C_PRIMARY_LIGHT};
+                font-weight: 600;
+                font-size: 12px;
+            }}
+
+            /* ===== 树形控件 ===== */
+            QTreeWidget {{
+                border: 1px solid {_C_BORDER};
+                border-radius: 10px;
+                background-color: {_C_BG_CARD};
+                selection-background-color: {_C_PRIMARY};
+                selection-color: #ffffff;
+                outline: none;
+            }}
+            QTreeWidget::item {{
+                padding: 6px 4px;
+                border-radius: 4px;
+            }}
+            QTreeWidget::item:hover {{
+                background-color: {_C_HOVER};
+            }}
+
+            /* ===== 滑块 ===== */
+            QSlider::groove:horizontal {{
+                border: none;
+                height: 4px;
+                background: {_C_BORDER};
+                border-radius: 2px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {_C_PRIMARY};
+                border: none;
                 width: 16px;
                 height: 16px;
-                border-radius: 3px;
-                border: 2px solid #B0B0B0;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #6C7BF2;
-                border-color: #6C7BF2;
-            }
-            QRadioButton {
-                spacing: 6px;
-                color: #1A1A1A;
-            }
-            QRadioButton::indicator {
-                width: 16px;
-                height: 16px;
-                border: 2px solid #B0B0B0;
-            }
-            QRadioButton::indicator:checked {
-                border-color: #6C7BF2;
-                background-color: #6C7BF2;
-            }
-            QScrollBar:vertical {
+                margin: -6px 0;
+                border-radius: 8px;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background: {_C_PRIMARY_HOVER};
+                width: 18px;
+                height: 18px;
+                margin: -7px 0;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {_C_PRIMARY};
+                border-radius: 2px;
+            }}
+
+            /* ===== 复选框 ===== */
+            QCheckBox {{
+                spacing: 10px;
+                color: {_C_TEXT_MAIN};
+                font-size: 13px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                image: url({_icon_urls['checkbox_unchecked']});
+            }}
+            QCheckBox::indicator:checked {{
+                image: url({_icon_urls['checkbox_checked']});
+            }}
+            QCheckBox::indicator:disabled {{
+                image: url({_icon_urls['checkbox_unchecked']});
+            }}
+            QCheckBox::indicator:checked:disabled {{
+                image: url({_icon_urls['checkbox_checked']});
+            }}
+
+            /* ===== 单选框 ===== */
+            QRadioButton {{
+                spacing: 10px;
+                color: {_C_TEXT_MAIN};
+                font-size: 13px;
+            }}
+            QRadioButton::indicator {{
+                width: 18px;
+                height: 18px;
+                image: url({_icon_urls['radio_unchecked']});
+            }}
+            QRadioButton::indicator:checked {{
+                image: url({_icon_urls['radio_checked']});
+            }}
+            QRadioButton::indicator:disabled {{
+                image: url({_icon_urls['radio_unchecked']});
+            }}
+            QRadioButton::indicator:checked:disabled {{
+                image: url({_icon_urls['radio_checked']});
+            }}
+
+            /* ===== 滚动条 - 极简细条 ===== */
+            QScrollBar:vertical {{
                 background: transparent;
                 width: 6px;
                 border-radius: 3px;
-            }
-            QScrollBar::handle:vertical {
-                background: #E5E5E5;
+                margin: 4px 2px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {_C_SCROLLBAR};
                 border-radius: 3px;
-                min-height: 24px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #8E8E8E;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                min-height: 40px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {_C_PRIMARY};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 height: 0;
-            }
-            QScrollBar:horizontal {
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
+            QScrollBar:horizontal {{
                 background: transparent;
                 height: 6px;
                 border-radius: 3px;
-            }
-            QScrollBar::handle:horizontal {
-                background: #E5E5E5;
+                margin: 2px 4px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {_C_SCROLLBAR};
                 border-radius: 3px;
-                min-width: 30px;
-            }
-            QScrollBar::handle:horizontal:hover {
-                background: #8E8E8E;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                min-width: 40px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {_C_PRIMARY};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
                 width: 0;
-            }
+            }}
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: transparent;
+            }}
+
+            /* ===== 提示框 ===== */
+            QToolTip {{
+                background-color: {_C_TEXT_MAIN};
+                color: #FFFFFF;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
+            }}
+
+            /* ===== 状态栏 ===== */
+            QStatusBar {{
+                background-color: {_C_BG_CARD};
+                color: {_C_TEXT_SUB};
+                border-top: 1px solid {_C_BORDER};
+                font-size: 12px;
+            }}
+
+            /* ===== 对话框 ===== */
+            QDialog {{
+                background-color: {_C_BG_MAIN};
+            }}
+            QMessageBox {{
+                background-color: {_C_BG_CARD};
+            }}
+
+            /* ===== 标签样式 ===== */
+            QLabel#pageTitle {{
+                font-size: 20px;
+                font-weight: 700;
+                color: {_C_TEXT_MAIN};
+                padding: 0px;
+            }}
+            QLabel#pageSubtitle {{
+                font-size: 13px;
+                color: {_C_TEXT_SUB};
+                padding: 0px;
+            }}
+            QLabel#appName {{
+                font-size: 18px;
+                font-weight: 700;
+                color: {_C_TEXT_MAIN};
+                letter-spacing: 0.5px;
+            }}
+            QLabel#versionLabel {{
+                font-size: 11px;
+                color: {_C_TEXT_LIGHT};
+                padding: 2px 6px;
+            }}
+
+            /* ===== 侧边栏框架 ===== */
+            QFrame#sidebar {{
+                background-color: {_C_BG_SIDEBAR};
+                border: none;
+                border-right: 1px solid {_C_BORDER_LIGHT};
+                border-radius: 0px;
+            }}
+            QFrame#contentArea {{
+                background-color: {_C_BG_MAIN};
+                border: none;
+            }}
+            QStackedWidget#contentStack {{
+                background-color: {_C_BG_CARD};
+                border-radius: 16px;
+                border: none;
+            }}
+            QFrame#topBar {{
+                background-color: transparent;
+                border: none;
+            }}
         """)
 
         # 创建中央部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        # 主布局
+        # 主布局 - 零边距，现代全出血设计
         main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
         # ========== 使用QSplitter实现可拖拽调整大小 ==========
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setHandleWidth(3)
+        self.splitter.setChildrenCollapsible(False)
 
-        # ========== 左侧面板 ==========
+        # ========== 左侧导航栏 ==========
         left_panel = QFrame()
-        left_panel.setStyleSheet("""
-            QFrame {
-                background-color: #F8F8F8;
-                border: none;
-                border-right: 1px solid #E5E5E5;
-            }
-        """)
+        left_panel.setObjectName("sidebar")
+        left_panel.setFixedWidth(220)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(12, 16, 12, 16)
+        left_layout.setContentsMargins(0, 0, 0, 16)
+        left_layout.setSpacing(0)
 
-        # 标题
-        title_label = QLabel("小狗助理")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("color: #6C7BF2; margin-bottom: 12px;")
-        title_label.setWordWrap(True)
-        left_layout.addWidget(title_label)
+        # ===== Logo区域 =====
+        logo_widget = QWidget()
+        logo_widget.setFixedHeight(72)
+        logo_layout = QHBoxLayout(logo_widget)
+        logo_layout.setContentsMargins(20, 0, 16, 0)
+        logo_layout.setSpacing(12)
 
-        # 功能列表
+        # 狗爪图标
+        logo_icon = QLabel()
+        logo_icon.setPixmap(_render_paw_pixmap(36))
+        logo_icon.setFixedSize(36, 36)
+        logo_layout.addWidget(logo_icon)
+
+        # App名称
+        logo_text = QLabel("小狗助理")
+        logo_text.setObjectName("appName")
+        logo_text.setStyleSheet(f"color: {_C_TEXT_MAIN}; font-size: 17px; font-weight: 700;")
+        logo_layout.addWidget(logo_text)
+        logo_layout.addStretch()
+
+        left_layout.addWidget(logo_widget)
+
+        # 分隔线
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background-color: {_C_BORDER_LIGHT}; border: none; margin: 0 16px;")
+        left_layout.addWidget(sep)
+        left_layout.addSpacing(8)
+
+        # 功能列表标题
+        nav_title = QLabel("功能工具")
+        nav_title.setStyleSheet(f"color: {_C_TEXT_LIGHT}; font-size: 11px; font-weight: 600; padding: 8px 20px 4px 20px; letter-spacing: 1px;")
+        left_layout.addWidget(nav_title)
+
+        # 导航列表
         self.nav_list = QListWidget()
-        list_font = QFont()
-        list_font.setPointSize(10)
-        self.nav_list.setFont(list_font)
-        functions = [
-            "重复文件查找器",
-            "文件夹同步/备份",
-            "磁盘空间分析器",
-            "文件批量筛选",
-            "文件名称提取器",
-            "文档拆分工具",
-            "文本重复识别"
+        self.nav_list.setObjectName("navList")
+        self.nav_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.functions = [
+            ("重复文件查找器", "快速查找并清理重复文件"),
+            ("文件夹同步/备份", "智能同步文件夹内容"),
+            ("磁盘空间分析器", "可视化分析磁盘占用"),
+            ("文件批量筛选", "批量处理Office文档"),
+            ("文件名称提取器", "智能提取与重命名"),
+            ("文档拆分工具", "PDF/文档智能拆分"),
+            ("文本重复识别", "检测重复文本内容")
         ]
-        for i, func in enumerate(functions):
-            item = QListWidgetItem(func)
-            item.setSizeHint(QSize(0, 36))
+        self._nav_items = []
+        for i, (name, desc) in enumerate(self.functions):
+            item = QListWidgetItem(name)
+            item.setSizeHint(QSize(0, 48))
+            item.setData(Qt.ItemDataRole.UserRole, desc)
             if HAS_QTSVG:
-                item.setIcon(_create_outline_icon(_NAV_ICONS[i], 16, "#8E8E8E"))
+                ic = _C_NAV_ACTIVE if i == 0 else _C_TEXT_SUB
+                item.setIcon(_create_outline_icon(_NAV_ICONS[i], 20, ic))
             self.nav_list.addItem(item)
-        left_layout.addWidget(self.nav_list)
+            self._nav_items.append(item)
         self.nav_list.setCurrentRow(0)
-        left_layout.addStretch()
+        left_layout.addWidget(self.nav_list, 1)
+
+        # 底部版本信息
+        bottom_widget = QWidget()
+        bottom_layout = QHBoxLayout(bottom_widget)
+        bottom_layout.setContentsMargins(20, 8, 16, 0)
+        bottom_layout.setSpacing(8)
+        if HAS_QTSVG:
+            bot_icon = QLabel()
+            bot_icon.setPixmap(_make_icon_pixmap(_ICON_INFO, 14, _C_TEXT_LIGHT))
+            bot_icon.setFixedSize(14, 14)
+            bottom_layout.addWidget(bot_icon)
+        ver_label = QLabel("v1.2.1")
+        ver_label.setObjectName("versionLabel")
+        bottom_layout.addWidget(ver_label)
+        bottom_layout.addStretch()
+        left_layout.addWidget(bottom_widget)
 
         # ========== 右侧内容区域 ==========
-        # 右侧容器：顶部栏 + 内容面板
-        right_container = QWidget()
+        right_container = QFrame()
+        right_container.setObjectName("contentArea")
         right_vlayout = QVBoxLayout(right_container)
-        right_vlayout.setContentsMargins(0, 0, 0, 0)
-        right_vlayout.setSpacing(6)
+        right_vlayout.setContentsMargins(28, 24, 28, 24)
+        right_vlayout.setSpacing(16)
 
-        # 顶部栏：版本信息 + 设置按钮（右对齐）
-        top_bar = QHBoxLayout()
-        top_bar.addStretch()
+        # ===== 顶部栏 =====
+        top_bar = QFrame()
+        top_bar.setObjectName("topBar")
+        top_bar.setFixedHeight(48)
+        top_bar_layout = QHBoxLayout(top_bar)
+        top_bar_layout.setContentsMargins(4, 0, 4, 0)
+        top_bar_layout.setSpacing(16)
 
-        # 版本图标 + 版本号（用 QLabel 显示，避免 QPushButton 图标裁剪问题）
-        if HAS_QTSVG:
-            ver_icon = QLabel()
-            ver_icon.setPixmap(_make_icon_pixmap(_ICON_INFO, 16, "#8E8E8E"))
-            ver_icon.setFixedSize(16, 16)
-            ver_icon.setStyleSheet("border: none; background: transparent;")
-            top_bar.addWidget(ver_icon)
+        # 左侧：页面标题+副标题
+        title_area = QVBoxLayout()
+        title_area.setSpacing(2)
+        self.page_title = QLabel("重复文件查找器")
+        self.page_title.setObjectName("pageTitle")
+        self.page_subtitle = QLabel("快速查找并清理重复文件")
+        self.page_subtitle.setObjectName("pageSubtitle")
+        title_area.addWidget(self.page_title)
+        title_area.addWidget(self.page_subtitle)
+        top_bar_layout.addLayout(title_area)
 
-        version_label = QLabel("v1.2.1")
-        version_font = QFont()
-        version_font.setPointSize(9)
-        version_label.setFont(version_font)
-        version_label.setStyleSheet("color: #8E8E8E; border: none; background: transparent; padding: 2px 6px 2px 2px;")
-        top_bar.addWidget(version_label)
+        top_bar_layout.addStretch()
 
-        # 设置按钮（带小人图标）
+        # 右侧：设置按钮
         btn_settings = QPushButton()
         btn_settings.setObjectName("settingsBtn")
-        btn_settings.setFixedSize(34, 30)
+        btn_settings.setFixedSize(40, 40)
         btn_settings.setToolTip("设置")
+        btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_settings.clicked.connect(self._open_easter_egg_settings)
         if HAS_QTSVG:
-            btn_settings.setIcon(_create_outline_icon(_ICON_PERSON, 16, "#8E8E8E"))
-            btn_settings.setIconSize(QSize(16, 16))
-        btn_settings.setStyleSheet("""
-            QPushButton#settingsBtn {
-                background-color: transparent;
-                border: none;
-                border-radius: 6px;
+            btn_settings.setIcon(_create_outline_icon(_ICON_PERSON, 20, _C_TEXT_SUB))
+            btn_settings.setIconSize(QSize(20, 20))
+        btn_settings.setStyleSheet(f"""
+            QPushButton#settingsBtn {{
+                background-color: {_C_BG_CARD};
+                border: 1px solid {_C_BORDER};
+                border-radius: 10px;
                 padding: 0px;
                 min-height: 0px;
-            }
-            QPushButton#settingsBtn:hover {
-                background-color: #F5F5F5;
-            }
+            }}
+            QPushButton#settingsBtn:hover {{
+                background-color: {_C_PRIMARY_LIGHT};
+                border-color: {_C_PRIMARY};
+            }}
         """)
-        top_bar.addWidget(btn_settings)
-        right_vlayout.addLayout(top_bar)
+        top_bar_layout.addWidget(btn_settings)
+        right_vlayout.addWidget(top_bar)
 
         # 内容面板
         self.right_panel = QStackedWidget()
-        self.right_panel.setStyleSheet("""
-            QStackedWidget {
-                background-color: white;
-                border-radius: 10px;
-                border: 1px solid #E5E5E5;
-            }
-        """)
+        self.right_panel.setObjectName("contentStack")
 
         # 创建各个功能页面
         self.page_duplicate = DuplicateFilePage()
@@ -496,33 +939,46 @@ class PupAideMainWindow(QMainWindow):
         self.right_panel.addWidget(self.page_docsplit)
         self.right_panel.addWidget(self.page_textdup)
 
-        # 添加导航栏点击事件
-        self.nav_list.currentRowChanged.connect(
-            self.right_panel.setCurrentIndex)
+        # 导航切换事件：更新标题+图标颜色
+        self.nav_list.currentRowChanged.connect(self._on_nav_changed)
+        self.nav_list.currentRowChanged.connect(self.right_panel.setCurrentIndex)
 
-        right_vlayout.addWidget(self.right_panel)
+        right_vlayout.addWidget(self.right_panel, 1)
 
         # 将左右面板添加到分割器
         self.splitter.addWidget(left_panel)
         self.splitter.addWidget(right_container)
 
         # 设置初始大小比例
-        self.splitter.setSizes([200, 850])
+        self.splitter.setSizes([220, 980])
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
 
         # 添加到主布局
         main_layout.addWidget(self.splitter)
 
-        # 设置窗口图标
-        if getattr(sys, 'frozen', False):
-            icon_path = os.path.join(sys._MEIPASS, 'dog.ico')
-        else:
-            icon_path = os.path.join(os.path.dirname(
-                os.path.abspath(__file__)), 'dog.ico')
-        self.setWindowIcon(QIcon(icon_path))
+        # 设置窗口图标 (狗爪)
+        self.setWindowIcon(QIcon(_render_paw_pixmap(256)))
 
         # 彩蛋系统
         self.easter_egg_manager = EasterEggManager(self)
         self.easter_egg_manager.on_app_start()
+
+    def _on_nav_changed(self, index):
+        """导航切换时更新页面标题和图标颜色"""
+        if 0 <= index < len(self.functions):
+            name, desc = self.functions[index]
+            self.page_title.setText(name)
+            self.page_subtitle.setText(desc)
+        # 更新所有导航项图标颜色（导航栏保持亮橙）
+        for i, item in enumerate(self._nav_items):
+            if i == index:
+                item.setIcon(_create_outline_icon(_NAV_ICONS[i], 20, _C_NAV_ACTIVE))
+            else:
+                item.setIcon(_create_outline_icon(_NAV_ICONS[i], 20, _C_TEXT_SUB))
+        # 初始选中项图标
+        if index == 0:
+            self._nav_items[0].setIcon(_create_outline_icon(_NAV_ICONS[0], 20, _C_NAV_ACTIVE))
 
     def _open_easter_egg_settings(self):
         data = _load_easter_egg_data()
@@ -534,9 +990,10 @@ class PupAideMainWindow(QMainWindow):
 class DuplicateFilePage(QWidget):
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(28, 24, 28, 24)
 
         # 标题
         title = QLabel("重复文件查找器")
@@ -545,6 +1002,7 @@ class DuplicateFilePage(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
+        title.hide()
 
         # 文件夹选择区域
         folder_group = QGroupBox("选择要扫描的文件夹")
@@ -570,21 +1028,7 @@ class DuplicateFilePage(QWidget):
         btn_select.clicked.connect(self.select_folder)
 
         # 确保文本显示
-        btn_select.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         path_layout.addWidget(self.folder_path)
         path_layout.addWidget(btn_select)
@@ -619,21 +1063,7 @@ class DuplicateFilePage(QWidget):
         self.btn_scan.setEnabled(False)
 
         # 确保文本显示
-        self.btn_scan.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         # 清空按钮
         self.btn_clear = QPushButton("清空结果")
@@ -641,21 +1071,7 @@ class DuplicateFilePage(QWidget):
         self.btn_clear.clicked.connect(self.clear_results)
 
         # 确保文本显示
-        self.btn_clear.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         button_layout.addWidget(self.btn_scan)
         button_layout.addWidget(self.btn_clear)
@@ -817,9 +1233,10 @@ class DuplicateFilePage(QWidget):
 class SyncBackupPage(QWidget):
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(28, 24, 28, 24)
 
         # 标题
         title = QLabel("文件夹同步/备份工具")
@@ -828,6 +1245,7 @@ class SyncBackupPage(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
+        title.hide()
 
         # 源文件夹选择
         source_group = QGroupBox("源文件夹（要备份的文件夹）")
@@ -846,21 +1264,7 @@ class SyncBackupPage(QWidget):
         self.btn_source = QPushButton("选择源文件夹")
         self.btn_source.setMinimumWidth(130)
         self.btn_source.clicked.connect(self.select_source_folder)
-        self.btn_source.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         source_path_layout.addWidget(self.source_path)
         source_path_layout.addWidget(self.btn_source)
@@ -882,21 +1286,7 @@ class SyncBackupPage(QWidget):
         self.btn_target = QPushButton("选择目标文件夹")
         self.btn_target.setMinimumWidth(130)
         self.btn_target.clicked.connect(self.select_target_folder)
-        self.btn_target.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         target_path_layout.addWidget(self.target_path)
         target_path_layout.addWidget(self.btn_target)
@@ -939,41 +1329,13 @@ class SyncBackupPage(QWidget):
         self.btn_sync.setMinimumWidth(130)
         self.btn_sync.clicked.connect(self.start_sync)
         self.btn_sync.setEnabled(False)
-        self.btn_sync.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         self.btn_preview = QPushButton("预览同步")
         self.btn_preview.setMinimumWidth(120)
         self.btn_preview.clicked.connect(self.preview_sync)
         self.btn_preview.setEnabled(False)
-        self.btn_preview.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         button_layout.addWidget(self.btn_sync)
         button_layout.addWidget(self.btn_preview)
@@ -1290,6 +1652,7 @@ class SyncBackupPage(QWidget):
 class DiskAnalyzerPage(QWidget):
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.current_path = None
         self.scan_thread = None
         # 配置中文字体
@@ -1303,7 +1666,7 @@ class DiskAnalyzerPage(QWidget):
         """初始化UI界面"""
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(28, 24, 28, 24)
 
         # 标题
         title = QLabel("磁盘空间分析器")
@@ -1312,6 +1675,7 @@ class DiskAnalyzerPage(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
+        title.hide()
 
         # 统一的 QGroupBox 字体
         group_font = QFont()
@@ -1329,20 +1693,7 @@ class DiskAnalyzerPage(QWidget):
 
         self.btn_browse = QPushButton("选择文件夹")
         self.btn_browse.clicked.connect(self.select_path)
-        self.btn_browse.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         path_layout.addWidget(self.path_edit)
         path_layout.addWidget(self.btn_browse)
@@ -1377,38 +1728,12 @@ class DiskAnalyzerPage(QWidget):
         self.btn_scan = QPushButton("开始扫描")
         self.btn_scan.clicked.connect(self.start_scan)
         self.btn_scan.setEnabled(False)
-        self.btn_scan.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         self.btn_stop = QPushButton("停止扫描")
         self.btn_stop.clicked.connect(self.stop_scan)
         self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet("""
-            QPushButton {
-                background-color: #ef4444;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #dc2626;
-            }
-        """)
+        self.btn_stop.setObjectName("dangerBtn")
 
         button_layout.addWidget(self.btn_scan)
         button_layout.addWidget(self.btn_stop)
@@ -1904,6 +2229,7 @@ class ScanThread(QThread):
 class PDFBatchPage(QWidget):
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.pdf_files = []  # 存储选中的PDF文件列表
         self.setup_ui()
 
@@ -1911,7 +2237,7 @@ class PDFBatchPage(QWidget):
         """初始化UI界面"""
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(28, 24, 28, 24)
 
         # 标题
         title = QLabel("PDF 批量处理工具（该功能暂未测试）")
@@ -1920,6 +2246,7 @@ class PDFBatchPage(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
+        title.hide()
 
         # # 添加注释文本
         # subtitle = QLabel("该功能暂未测试")
@@ -1948,54 +2275,15 @@ class PDFBatchPage(QWidget):
 
         self.btn_add = QPushButton("添加文件")
         self.btn_add.clicked.connect(self.add_files)
-        self.btn_add.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         self.btn_remove = QPushButton("移除选中")
         self.btn_remove.clicked.connect(self.remove_files)
-        self.btn_remove.setStyleSheet("""
-            QPushButton {
-                background-color: #ef4444;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #dc2626;
-            }
-        """)
+        self.btn_remove.setObjectName("dangerBtn")
 
         self.btn_clear = QPushButton("清空列表")
         self.btn_clear.clicked.connect(self.clear_files)
-        self.btn_clear.setStyleSheet("""
-            QPushButton {
-                background-color: #8E8E8E;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #8E8E8E;
-            }
-        """)
+        self.btn_clear.setObjectName("secondaryBtn")
 
         file_btn_layout.addWidget(self.btn_add)
         file_btn_layout.addWidget(self.btn_remove)
@@ -2075,20 +2363,7 @@ class PDFBatchPage(QWidget):
 
         self.btn_merge_browse = QPushButton("选择保存位置")
         self.btn_merge_browse.clicked.connect(self.browse_output_file)
-        self.btn_merge_browse.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
         output_layout.addWidget(self.btn_merge_browse)
 
         layout.addLayout(output_layout)
@@ -2096,20 +2371,7 @@ class PDFBatchPage(QWidget):
         # 合并按钮
         self.btn_merge = QPushButton("开始合并")
         self.btn_merge.clicked.connect(self.merge_pdfs)
-        self.btn_merge.setStyleSheet("""
-            QPushButton {
-                background-color: #22c55e;
-                color: white;
-                border: none;
-                padding: 10px 15px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #16a34a;
-            }
-        """)
+
         layout.addWidget(self.btn_merge)
 
         layout.addStretch()
@@ -2144,20 +2406,7 @@ class PDFBatchPage(QWidget):
 
         self.btn_split_browse = QPushButton("选择保存位置")
         self.btn_split_browse.clicked.connect(self.browse_output_file)
-        self.btn_split_browse.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
         output_layout.addWidget(self.btn_split_browse)
 
         layout.addLayout(output_layout)
@@ -2165,21 +2414,7 @@ class PDFBatchPage(QWidget):
         # 拆分按钮
         self.btn_split = QPushButton("开始拆分")
         self.btn_split.clicked.connect(self.split_pdf)
-        self.btn_split.setStyleSheet("""
-            QPushButton {
-                background-color: #22c55e;
-                color: white;
-                border: none;
-                padding: 10px 15px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #16a34a;
-            }
-        """)
+
         layout.addWidget(self.btn_split)
 
         layout.addStretch()
@@ -2224,7 +2459,7 @@ class PDFBatchPage(QWidget):
         self.watermark_color = QPushButton("选择颜色")
         self.watermark_color.clicked.connect(self.choose_watermark_color)
         self.watermark_color.setStyleSheet(
-            "background-color: #8E8E8E; color: white;")
+            "background-color: #86909C; color: white;")
         settings_layout.addRow("水印颜色:", self.watermark_color)
 
         layout.addLayout(settings_layout)
@@ -2239,20 +2474,7 @@ class PDFBatchPage(QWidget):
 
         self.btn_watermark_browse = QPushButton("选择保存位置")
         self.btn_watermark_browse.clicked.connect(self.browse_output_file)
-        self.btn_watermark_browse.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
         output_layout.addWidget(self.btn_watermark_browse)
 
         layout.addLayout(output_layout)
@@ -2260,21 +2482,7 @@ class PDFBatchPage(QWidget):
         # 添加水印按钮
         self.btn_watermark = QPushButton("添加水印")
         self.btn_watermark.clicked.connect(self.add_watermark)
-        self.btn_watermark.setStyleSheet("""
-            QPushButton {
-                background-color: #22c55e;
-                color: white;
-                border: none;
-                padding: 10px 15px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #16a34a;
-            }
-        """)
+
         layout.addWidget(self.btn_watermark)
 
         layout.addStretch()
@@ -2323,20 +2531,7 @@ class PDFBatchPage(QWidget):
 
         self.btn_extract_browse = QPushButton("选择保存位置")
         self.btn_extract_browse.clicked.connect(self.browse_output_file)
-        self.btn_extract_browse.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
         output_layout.addWidget(self.btn_extract_browse)
 
         layout.addLayout(output_layout)
@@ -2344,21 +2539,7 @@ class PDFBatchPage(QWidget):
         # 提取文字按钮
         self.btn_extract = QPushButton("提取文字")
         self.btn_extract.clicked.connect(self.extract_text)
-        self.btn_extract.setStyleSheet("""
-            QPushButton {
-                background-color: #22c55e;
-                color: white;
-                border: none;
-                padding: 10px 15px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #16a34a;
-            }
-        """)
+
         layout.addWidget(self.btn_extract)
 
         layout.addStretch()
@@ -2403,20 +2584,7 @@ class PDFBatchPage(QWidget):
 
         self.btn_encrypt_browse = QPushButton("选择保存位置")
         self.btn_encrypt_browse.clicked.connect(self.browse_output_file)
-        self.btn_encrypt_browse.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
         output_layout.addWidget(self.btn_encrypt_browse)
 
         layout.addLayout(output_layout)
@@ -2424,21 +2592,7 @@ class PDFBatchPage(QWidget):
         # 加密/解密按钮
         self.btn_encrypt = QPushButton("开始处理")
         self.btn_encrypt.clicked.connect(self.encrypt_pdf)
-        self.btn_encrypt.setStyleSheet("""
-            QPushButton {
-                background-color: #22c55e;
-                color: white;
-                border: none;
-                padding: 10px 15px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #16a34a;
-            }
-        """)
+
         layout.addWidget(self.btn_encrypt)
 
         layout.addStretch()
@@ -2957,8 +3111,9 @@ class PDFBatchPage(QWidget):
 class OfficeBatchPage(QWidget):
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(12)
 
         title = QLabel("文件批量筛选")
@@ -2967,6 +3122,7 @@ class OfficeBatchPage(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
+        title.hide()
 
         layout.addSpacing(10)
 
@@ -2986,7 +3142,7 @@ class OfficeBatchPage(QWidget):
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_list.setStyleSheet("""
             QListWidget {
-                border: 1px solid #E5E5E5;
+                border: 1px solid #E5E7EB;
                 border-radius: 8px;
                 padding: 5px;
                 background-color: white;
@@ -3010,22 +3166,6 @@ class OfficeBatchPage(QWidget):
         self.btn_remove_files.clicked.connect(self.remove_selected_files)
         self.btn_clear_files = QPushButton("清空")
         self.btn_clear_files.clicked.connect(self.clear_files)
-        for btn in [self.btn_add_files, self.btn_remove_files, self.btn_clear_files]:
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #6C7BF2;
-                    color: white;
-                    border: none;
-                    padding: 4px 12px;
-                    border-radius: 4px;
-                    min-height: 26px;
-                    font-weight: bold;
-                    font-size: 10pt;
-                }
-                QPushButton:hover {
-                    background-color: #818EF5;
-                }
-            """)
         file_btn_layout.addWidget(self.btn_add_files)
         file_btn_layout.addWidget(self.btn_remove_files)
         file_btn_layout.addWidget(self.btn_clear_files)
@@ -3046,7 +3186,7 @@ class OfficeBatchPage(QWidget):
         self.name_text.setPlaceholderText("输入需要筛选的人名（每行一个），支持从 Excel 导入\n例如：\n张三\n王五\n赵六")
         self.name_text.setStyleSheet("""
             QTextEdit {
-                border: 1px solid #E5E5E5;
+                border: 1px solid #E5E7EB;
                 border-radius: 8px;
                 padding: 8px;
                 background-color: white;
@@ -3060,22 +3200,6 @@ class OfficeBatchPage(QWidget):
         self.btn_load_names.clicked.connect(self.load_names_from_file)
         self.btn_clear_names = QPushButton("清空")
         self.btn_clear_names.clicked.connect(lambda: self.name_text.clear())
-        for btn in [self.btn_load_names, self.btn_clear_names]:
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #6C7BF2;
-                    color: white;
-                    border: none;
-                    padding: 4px 12px;
-                    border-radius: 4px;
-                    min-height: 26px;
-                    font-weight: bold;
-                    font-size: 10pt;
-                }
-                QPushButton:hover {
-                    background-color: #818EF5;
-                }
-            """)
         name_btn_layout.addWidget(self.btn_load_names)
         name_btn_layout.addWidget(self.btn_clear_names)
         name_btn_layout.addStretch()
@@ -3108,19 +3232,7 @@ class OfficeBatchPage(QWidget):
         action_layout.setSpacing(0)
         self.btn_filter = QPushButton("开始筛选")
         self.btn_filter.setMinimumWidth(110)
-        self.btn_filter.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 12px;
-                border-radius: 4px;
-                min-height: 26px;
-                font-weight: bold;
-                font-size: 10pt;
-            }
-            QPushButton:hover { background-color: #818EF5; }
-        """)
+
         self.btn_filter.clicked.connect(self.filter_files)
         action_layout.addStretch()
         action_layout.addWidget(self.btn_filter)
@@ -3140,7 +3252,7 @@ class OfficeBatchPage(QWidget):
         self.result_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.result_list.setStyleSheet("""
             QListWidget {
-                border: 1px solid #E5E5E5;
+                border: 1px solid #E5E7EB;
                 border-radius: 8px;
                 padding: 5px;
                 background-color: white;
@@ -3164,22 +3276,6 @@ class OfficeBatchPage(QWidget):
         self.btn_copy_all = QPushButton("复制全部到...")
         self.btn_copy_all.clicked.connect(self.copy_all_filtered)
         self.btn_copy_all.setMinimumWidth(110)
-        for btn in [self.btn_copy_selected, self.btn_copy_all]:
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #6C7BF2;
-                    color: white;
-                    border: none;
-                    padding: 4px 12px;
-                    border-radius: 4px;
-                    min-height: 26px;
-                    font-weight: bold;
-                    font-size: 10pt;
-                }
-                QPushButton:hover {
-                    background-color: #818EF5;
-                }
-            """)
         result_btn_layout.addWidget(self.btn_copy_selected)
         result_btn_layout.addWidget(self.btn_copy_all)
         result_btn_layout.addStretch()
@@ -3411,15 +3507,25 @@ class DropFileListWidget(QListWidget):
 class FileNameCut(QWidget):
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.folder_path = None
         self.extracted_data = []
         self.setup_ui()
 
     def setup_ui(self):
         """初始化UI界面"""
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        from PyQt6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
         layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(28, 24, 28, 24)
 
         # 标题
         title = QLabel("文件名称提取器")
@@ -3428,6 +3534,7 @@ class FileNameCut(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
+        title.hide()
 
         # 文件夹选择区域
         folder_group = QGroupBox("选择文件夹")
@@ -3447,20 +3554,7 @@ class FileNameCut(QWidget):
         btn_select = QPushButton("选择文件夹")
         btn_select.setMinimumWidth(130)
         btn_select.clicked.connect(self.select_folder)
-        btn_select.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         path_layout.addWidget(self.folder_path_edit)
         path_layout.addWidget(btn_select)
@@ -3500,7 +3594,7 @@ class FileNameCut(QWidget):
             QLabel {
                 color: #333;
                 font-weight: bold;
-                background-color: #F5F5F5;
+                background-color: #F7F8FA;
                 padding: 5px 10px;
                 border-radius: 4px;
                 min-width: 70px;
@@ -3512,7 +3606,7 @@ class FileNameCut(QWidget):
         self.separator_edit.setStyleSheet("""
             QLineEdit {
                 padding: 5px 10px;
-                border: 1px solid #E5E5E5;
+                border: 1px solid #E5E7EB;
                 border-radius: 4px;
                 min-height: 28px;
             }
@@ -3528,7 +3622,7 @@ class FileNameCut(QWidget):
             QLabel {
                 color: #333;
                 font-weight: bold;
-                background-color: #F5F5F5;
+                background-color: #F7F8FA;
                 padding: 5px 10px;
                 border-radius: 4px;
                 min-width: 70px;
@@ -3538,14 +3632,6 @@ class FileNameCut(QWidget):
         self.extract_part.setMinimum(1)
         self.extract_part.setMaximum(10)
         self.extract_part.setValue(1)
-        self.extract_part.setStyleSheet("""
-            QSpinBox {
-                padding: 5px 10px;
-                border: 1px solid #E5E5E5;
-                border-radius: 4px;
-                min-height: 28px;
-            }
-        """)
         extract_layout.addWidget(extract_label)
         extract_layout.addWidget(self.extract_part)
         settings_layout.addLayout(extract_layout)
@@ -3557,7 +3643,7 @@ class FileNameCut(QWidget):
             QLabel {
                 color: #333;
                 font-weight: bold;
-                background-color: #F5F5F5;
+                background-color: #F7F8FA;
                 padding: 5px 10px;
                 border-radius: 4px;
                 min-width: 70px;
@@ -3568,7 +3654,7 @@ class FileNameCut(QWidget):
         self.extension_edit.setStyleSheet("""
             QLineEdit {
                 padding: 5px 10px;
-                border: 1px solid #E5E5E5;
+                border: 1px solid #E5E7EB;
                 border-radius: 4px;
                 min-height: 28px;
             }
@@ -3589,38 +3675,12 @@ class FileNameCut(QWidget):
         self.btn_preview = QPushButton("预览结果")
         self.btn_preview.clicked.connect(self.preview_extraction)
         self.btn_preview.setEnabled(False)
-        self.btn_preview.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         self.btn_export = QPushButton("导出到Excel")
         self.btn_export.clicked.connect(self.export_to_excel)
         self.btn_export.setEnabled(False)
-        self.btn_export.setStyleSheet("""
-            QPushButton {
-                background-color: #22c55e;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #16a34a;
-            }
-        """)
+
 
         button_layout.addWidget(self.btn_preview)
         button_layout.addWidget(self.btn_export)
@@ -3649,6 +3709,11 @@ class FileNameCut(QWidget):
         self.status_label = QLabel("请选择文件夹")
         self.status_label.setStyleSheet("color: #666;")
         layout.addWidget(self.status_label)
+
+        scroll.setWidget(container)
+        scroll.setObjectName("pageScroll")
+        container.setObjectName("scrollContainer")
+        outer_layout.addWidget(scroll)
 
     def select_folder(self):
         """选择文件夹"""
@@ -3827,7 +3892,7 @@ class OCRPage(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(28, 24, 28, 24)
         label = QLabel("OCR 文字识别工具")
         title_font = QFont()
         title_font.setPointSize(14)
@@ -3842,7 +3907,7 @@ class OCRPage(QWidget):
         info_font.setPointSize(10)
         info.setFont(info_font)
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info.setStyleSheet("color: #8E8E8E; margin-top: 20px;")
+        info.setStyleSheet("color: #86909C; margin-top: 20px;")
         layout.addWidget(info)
 
 
@@ -4582,6 +4647,7 @@ class SplitWorker(QThread):
 class TextDuplicatePage(QWidget):
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setup_ui()
 
     def setup_ui(self):
@@ -4596,7 +4662,7 @@ class TextDuplicatePage(QWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(28, 24, 28, 24)
 
         # 标题
         title = QLabel("文本重复识别")
@@ -4605,6 +4671,7 @@ class TextDuplicatePage(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
+        title.hide()
 
         group_font = QFont()
         group_font.setPointSize(11)
@@ -4655,107 +4722,30 @@ class TextDuplicatePage(QWidget):
         self.btn_analyze = QPushButton("识别重复项")
         self.btn_analyze.setMinimumWidth(130)
         self.btn_analyze.clicked.connect(self.analyze_duplicates)
-        self.btn_analyze.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         self.btn_extract_unique = QPushButton("提取非重复部分")
         self.btn_extract_unique.setMinimumWidth(140)
         self.btn_extract_unique.clicked.connect(self.extract_unique)
         self.btn_extract_unique.setEnabled(False)
-        self.btn_extract_unique.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-            QPushButton:disabled {
-                background-color: #C5CAF8;
-                color: #8E8E8E;
-            }
-        """)
+
 
         self.btn_extract_dup = QPushButton("提取重复部分")
         self.btn_extract_dup.setMinimumWidth(130)
         self.btn_extract_dup.clicked.connect(self.extract_duplicate)
         self.btn_extract_dup.setEnabled(False)
-        self.btn_extract_dup.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-            QPushButton:disabled {
-                background-color: #C5CAF8;
-                color: #8E8E8E;
-            }
-        """)
+
 
         self.btn_extract_dedup = QPushButton("提取去重后文本")
         self.btn_extract_dedup.setMinimumWidth(140)
         self.btn_extract_dedup.clicked.connect(self.extract_deduplicated)
         self.btn_extract_dedup.setEnabled(False)
-        self.btn_extract_dedup.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-            QPushButton:disabled {
-                background-color: #C5CAF8;
-                color: #8E8E8E;
-            }
-        """)
+
 
         self.btn_clear = QPushButton("清空")
         self.btn_clear.setMinimumWidth(90)
         self.btn_clear.clicked.connect(self.clear_all)
-        self.btn_clear.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         button_layout.addWidget(self.btn_analyze)
         button_layout.addWidget(self.btn_extract_unique)
@@ -4796,24 +4786,7 @@ class TextDuplicatePage(QWidget):
         self.btn_copy = QPushButton("复制输出结果")
         self.btn_copy.clicked.connect(self.copy_output)
         self.btn_copy.setEnabled(False)
-        self.btn_copy.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-            QPushButton:disabled {
-                background-color: #C5CAF8;
-                color: #8E8E8E;
-            }
-        """)
+
         copy_layout.addStretch()
         copy_layout.addWidget(self.btn_copy)
         output_layout.addLayout(copy_layout)
@@ -4822,6 +4795,8 @@ class TextDuplicatePage(QWidget):
         layout.addStretch()
 
         scroll.setWidget(container)
+        scroll.setObjectName("pageScroll")
+        container.setObjectName("scrollContainer")
         outer_layout.addWidget(scroll)
 
         # 存储分析结果
@@ -5048,6 +5023,7 @@ class TextDuplicatePage(QWidget):
 class DocSplitPage(QWidget):
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.file_list_data = []
         self.split_worker = None
         self.input_vars = {}  # {变量名: [值1, 值2, ...]}
@@ -5065,7 +5041,7 @@ class DocSplitPage(QWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(28, 24, 28, 24)
 
         # 标题
         title = QLabel("文档拆分工具")
@@ -5074,6 +5050,7 @@ class DocSplitPage(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
         layout.addWidget(title)
+        title.hide()
 
         group_font = QFont()
         group_font.setPointSize(11)
@@ -5094,38 +5071,12 @@ class DocSplitPage(QWidget):
         btn_add = QPushButton("选择文件")
         btn_add.setMinimumWidth(110)
         btn_add.clicked.connect(self.add_files)
-        btn_add.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         btn_add_batch = QPushButton("批量添加")
         btn_add_batch.setMinimumWidth(110)
         btn_add_batch.clicked.connect(self.add_files_batch)
-        btn_add_batch.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
 
         path_layout.addWidget(self.file_path_edit)
         path_layout.addWidget(btn_add)
@@ -5142,36 +5093,10 @@ class DocSplitPage(QWidget):
         file_btn_layout = QHBoxLayout()
         btn_remove = QPushButton("移除选中")
         btn_remove.clicked.connect(self.remove_files)
-        btn_remove.setStyleSheet("""
-            QPushButton {
-                background-color: #ef4444;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #dc2626;
-            }
-        """)
+        btn_remove.setObjectName("dangerBtn")
         btn_clear = QPushButton("清空列表")
         btn_clear.clicked.connect(self.clear_files)
-        btn_clear.setStyleSheet("""
-            QPushButton {
-                background-color: #8E8E8E;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #8E8E8E;
-            }
-        """)
+        btn_clear.setObjectName("secondaryBtn")
         file_btn_layout.addWidget(btn_remove)
         file_btn_layout.addWidget(btn_clear)
         file_btn_layout.addStretch()
@@ -5300,50 +5225,24 @@ class DocSplitPage(QWidget):
         naming_layout.addLayout(template_layout)
 
         self.hint_label = QLabel("可用变量: {原名}  {序号}  {序号:02d}  {日期}  {页码范围}  {标题}")
-        self.hint_label.setStyleSheet("color: #8E8E8E; font-size: 11px;")
+        self.hint_label.setStyleSheet("color: #86909C; font-size: 11px;")
         naming_layout.addWidget(self.hint_label)
 
         # 导入命名变量
         import_layout = QHBoxLayout()
         self.btn_import_names = QPushButton("导入变量（Excel）")
         self.btn_import_names.clicked.connect(self.import_names)
-        self.btn_import_names.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
         import_layout.addWidget(self.btn_import_names)
 
         self.btn_clear_import = QPushButton("清除变量")
         self.btn_clear_import.clicked.connect(self.clear_imported_vars)
         self.btn_clear_import.setVisible(False)
-        self.btn_clear_import.setStyleSheet("""
-            QPushButton {
-                background-color: #8E8E8E;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #8E8E8E;
-            }
-        """)
+        self.btn_clear_import.setObjectName("secondaryBtn")
         import_layout.addWidget(self.btn_clear_import)
 
         self.label_import_info = QLabel("未导入变量，导入Excel后列名将作为变量名")
-        self.label_import_info.setStyleSheet("color: #8E8E8E;")
+        self.label_import_info.setStyleSheet("color: #86909C;")
         import_layout.addWidget(self.label_import_info)
         import_layout.addStretch()
         naming_layout.addLayout(import_layout)
@@ -5373,20 +5272,7 @@ class DocSplitPage(QWidget):
         btn_output_dir = QPushButton("选择目录")
         btn_output_dir.setMinimumWidth(110)
         btn_output_dir.clicked.connect(self.select_output_dir)
-        btn_output_dir.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
         dir_layout.addWidget(btn_output_dir)
         output_layout.addLayout(dir_layout)
 
@@ -5407,59 +5293,19 @@ class DocSplitPage(QWidget):
         self.btn_preview.setMinimumWidth(120)
         self.btn_preview.clicked.connect(self.preview_split)
         self.btn_preview.setEnabled(False)
-        self.btn_preview.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-            QPushButton:disabled {
-                background-color: #C5CAF8;
-                color: #8E8E8E;
-            }
-        """)
+
 
         self.btn_split = QPushButton("开始拆分")
         self.btn_split.setMinimumWidth(120)
         self.btn_split.clicked.connect(self.start_split)
         self.btn_split.setEnabled(False)
-        self.btn_split.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-            QPushButton:disabled {
-                background-color: #C5CAF8;
-                color: #8E8E8E;
-            }
-        """)
+
 
         self.btn_stop = QPushButton("停止")
         self.btn_stop.setMinimumWidth(100)
         self.btn_stop.clicked.connect(self.stop_split)
         self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet("""
-            QPushButton {
-                background-color: #ef4444; color: white; border: none;
-                padding: 4px 10px; border-radius: 5px; min-height: 24px; font-weight: bold;
-            }
-            QPushButton:hover { background-color: #dc2626; }
-        """)
+        self.btn_stop.setObjectName("dangerBtn")
 
         button_layout.addWidget(self.btn_preview)
         button_layout.addWidget(self.btn_split)
@@ -5490,6 +5336,8 @@ class DocSplitPage(QWidget):
         layout.addStretch()
 
         scroll.setWidget(container)
+        scroll.setObjectName("pageScroll")
+        container.setObjectName("scrollContainer")
         outer_layout.addWidget(scroll)
 
     def import_names(self):
@@ -5574,7 +5422,7 @@ class DocSplitPage(QWidget):
         self.input_vars = {}
         self.hint_label.setText("可用变量: {原名}  {序号}  {序号:02d}  {日期}  {页码范围}  {标题}")
         self.label_import_info.setText("未导入变量，导入Excel后列名将作为变量名")
-        self.label_import_info.setStyleSheet("color: #8E8E8E;")
+        self.label_import_info.setStyleSheet("color: #86909C;")
         self.btn_clear_import.setVisible(False)
         self.import_vars_table.setVisible(False)
 
@@ -6145,7 +5993,7 @@ class EasterEggDialog(QDialog):
                 '<path d="M8 14s1.5 2 4 2 4-2 4-2"/>'
                 '<line x1="9" y1="9" x2="9.01" y2="9"/>'
                 '<line x1="15" y1="9" x2="15.01" y2="9"/>',
-                36, "#6C7BF2"
+                36, "#FF6B35"
             )
             icon_label.setPixmap(icon_pixmap)
             icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -6157,7 +6005,7 @@ class EasterEggDialog(QDialog):
         title_font.setBold(True)
         title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("color: #6C7BF2;")
+        title_label.setStyleSheet("color: #FF6B35;")
         layout.addWidget(title_label)
 
         msg_label = QLabel(message)
@@ -6172,21 +6020,7 @@ class EasterEggDialog(QDialog):
         btn = QPushButton("好哦")
         btn.clicked.connect(self.accept)
         btn.setFixedWidth(120)
-        btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6C7BF2;
-                color: white;
-                border: none;
-                padding: 4px 10px;
-                border-radius: 8px;
-                min-height: 24px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #818EF5;
-            }
-        """)
+
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         btn_layout.addWidget(btn)
@@ -6417,7 +6251,7 @@ class FirstLoginDialog(QDialog):
         title_font.setPointSize(13)
         title_font.setBold(True)
         title.setFont(title_font)
-        title.setStyleSheet("color: #6C7BF2;")
+        title.setStyleSheet("color: #FF6B35;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
@@ -6449,14 +6283,14 @@ class FirstLoginDialog(QDialog):
         layout.addLayout(btn_layout)
 
         self.setStyleSheet("""
-            QDialog { background-color: white; border-radius: 8px; border: 1px solid #E5E5E5; }
-            QLineEdit { padding: 6px 10px; border: 1px solid #E5E5E5; border-radius: 6px;
-                        min-height: 24px; font-size: 13px; }
-            QLineEdit:focus { border-color: #6C7BF2; }
-            QPushButton { background-color: #6C7BF2; color: white; border: none;
+            QDialog { background-color: white; border-radius: 8px; border: 1px solid #E5E7EB; }
+            QLineEdit { padding: 6px 10px; border: 1px solid #E5E7EB; border-radius: 6px;
+                        min-height: 20px; font-size: 13px; }
+            QLineEdit:focus { border-color: #FF6B35; }
+            QPushButton { background-color: #FF6B35; color: white; border: none;
                           padding: 4px 12px; border-radius: 8px; font-weight: 500;
-                          min-height: 24px; }
-            QPushButton:hover { background-color: #818EF5; }
+                          min-height: 20px; }
+            QPushButton:hover { background-color: #E85526; }
         """)
 
     def _confirm(self):
@@ -6464,7 +6298,7 @@ class FirstLoginDialog(QDialog):
         if not nick:
             self.nick_edit.setStyleSheet(
                 self.nick_edit.styleSheet().replace(
-                    "border: 1px solid #E5E5E5;",
+                    "border: 1px solid #E5E7EB;",
                     "border: 1px solid #DC4A4A;"))
             return
         self.nickname = nick
@@ -6487,7 +6321,7 @@ class EasterEggSettingsDialog(QDialog):
         title_font.setPointSize(13)
         title_font.setBold(True)
         title.setFont(title_font)
-        title.setStyleSheet("color: #6C7BF2;")
+        title.setStyleSheet("color: #FF6B35;")
         layout.addWidget(title)
 
         # 计算陪伴天数
@@ -6511,14 +6345,14 @@ class EasterEggSettingsDialog(QDialog):
 
         hint_label = QLabel("多多使用会有惊喜彩蛋哦 ")
         hint_label.setFont(info_font)
-        hint_label.setStyleSheet("color: #6C7BF2;")
+        hint_label.setStyleSheet("color: #FF6B35;")
         layout.addWidget(hint_label)
 
         # 修改昵称
         nick_layout = QHBoxLayout()
         nick_label = QLabel("昵称:")
         nick_label.setFont(info_font)
-        nick_label.setStyleSheet("color: #8E8E8E;")
+        nick_label.setStyleSheet("color: #86909C;")
         self.nick_edit = QLineEdit()
         self.nick_edit.setText(nickname)
         self.nick_edit.setMaxLength(20)
@@ -6545,12 +6379,12 @@ class EasterEggSettingsDialog(QDialog):
         layout.addLayout(btn_layout)
 
         self.setStyleSheet("""
-            QDialog { background-color: white; border-radius: 8px; border: 1px solid #E5E5E5; }
-            QLineEdit { padding: 6px 10px; border: 1px solid #E5E5E5; border-radius: 6px; min-height: 24px; }
-            QLineEdit:focus { border-color: #6C7BF2; }
-            QPushButton { background-color: #6C7BF2; color: white; border: none;
+            QDialog { background-color: white; border-radius: 8px; border: 1px solid #E5E7EB; }
+            QLineEdit { padding: 6px 10px; border: 1px solid #E5E7EB; border-radius: 6px; min-height: 20px; }
+            QLineEdit:focus { border-color: #FF6B35; }
+            QPushButton { background-color: #FF6B35; color: white; border: none;
                           padding: 4px 12px; border-radius: 8px; font-weight: 500; }
-            QPushButton:hover { background-color: #818EF5; }
+            QPushButton:hover { background-color: #E85526; }
         """)
 
     def _change_nickname(self):
@@ -6586,11 +6420,7 @@ def main():
     app = QApplication(sys.argv)
     qApp = app
 
-    if getattr(sys, 'frozen', False):
-        icon_path = os.path.join(sys._MEIPASS, 'dog.ico')
-    else:
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dog.ico')
-    app.setWindowIcon(QIcon(icon_path))
+    app.setWindowIcon(QIcon(_render_paw_pixmap(256)))
 
     if sys.platform == 'win32':
         try:
