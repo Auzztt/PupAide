@@ -51,6 +51,23 @@ except ImportError:
 # 获取全局应用对象，用于后续强制刷新样式
 qApp = None
 
+_APP_VERSION = "v1.3.1"
+
+def _get_version():
+    if getattr(sys, 'frozen', False):
+        return _APP_VERSION
+    try:
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--abbrev=0'],
+            capture_output=True, text=True, timeout=2,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return _APP_VERSION
+
 
 # ========== PupAide 3.0 现代UI主题色（橙色系+渐变） ==========
 # 核心品牌色
@@ -858,7 +875,7 @@ class PupAideMainWindow(QMainWindow):
             bot_icon.setPixmap(_make_icon_pixmap(_ICON_INFO, 14, _C_TEXT_LIGHT))
             bot_icon.setFixedSize(14, 14)
             bottom_layout.addWidget(bot_icon)
-        ver_label = QLabel("v1.2.1")
+        ver_label = QLabel(_get_version())
         ver_label.setObjectName("versionLabel")
         bottom_layout.addWidget(ver_label)
         bottom_layout.addStretch()
